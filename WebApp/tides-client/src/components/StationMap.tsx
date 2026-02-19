@@ -46,7 +46,7 @@ export default function StationMap({ station }: Props) {
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://tiles.stadiamaps.com/tiles/stamen_watercolor/{z}/{x}/{y}.jpg"
+            url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <FlyToStation station={station} />
           {station && (
