@@ -222,7 +222,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       </div>
       <div className="w-full overflow-x-auto">
         <div className="min-w-[600px] h-[320px]">
-          <Line key={predictions.from + predictions.to} ref={chartRef} data={data} options={options} />
+          <Line ref={chartRef} data={data} options={options} />
         </div>
       </div>
       <div className="flex sm:hidden items-center justify-center gap-1.5 mt-3">

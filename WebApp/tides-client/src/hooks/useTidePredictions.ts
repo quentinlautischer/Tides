@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { getTideAnalysis } from '../api/tidesApi';
 import { getCachedTidePredictions } from '../api/tideCache';
 
@@ -8,6 +8,7 @@ export function useTidePredictions(code: string | null, from: string, to: string
     queryFn: () => getCachedTidePredictions(code!, from, to),
     enabled: !!code,
     staleTime: Infinity,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -17,5 +18,6 @@ export function useTideAnalysis(code: string | null, from: string, to: string) {
     queryFn: () => getTideAnalysis(code!, from, to),
     enabled: !!code,
     staleTime: 1000 * 60 * 30,
+    placeholderData: keepPreviousData,
   });
 }
