@@ -110,7 +110,7 @@ public class IwlsApiService : IIwlsApiService
             {
                 dataPoints.AddRange(rawData.Select(d => new TideDataPoint
                 {
-                    Timestamp = d.EventDate,
+                    Timestamp = DateTime.SpecifyKind(d.EventDate, DateTimeKind.Utc),
                     Value = d.Value
                 }));
             }

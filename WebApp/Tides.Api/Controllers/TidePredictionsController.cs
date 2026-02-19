@@ -32,12 +32,19 @@ public class TidePredictionsController : ControllerBase
 
         var dataPoints = await _iwlsService.GetTidePredictionsAsync(station.Id, fromDate, toDate);
 
+        var tz = TimeZoneInfo.FindSystemTimeZoneById(station.TimeZone);
+        var localDataPoints = dataPoints.Select(dp => new TideDataPoint
+        {
+            Timestamp = TimeZoneInfo.ConvertTimeFromUtc(dp.Timestamp, tz),
+            Value = dp.Value
+        }).ToList();
+
         return Ok(new TidePredictionResponse
         {
             Station = station,
             From = fromDate,
             To = toDate,
-            DataPoints = dataPoints
+            DataPoints = localDataPoints
         });
     }
 
