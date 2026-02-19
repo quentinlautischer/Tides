@@ -23,6 +23,9 @@ TidesEnv/
 .DS_Store
 Thumbs.db
 
+# Build output
+wwwroot/
+
 # Environment
 .env
 .env.local

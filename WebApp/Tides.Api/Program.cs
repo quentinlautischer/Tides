@@ -14,19 +14,32 @@ builder.Services.AddHttpClient("IWLS", client =>
 builder.Services.AddSingleton<IIwlsApiService, IwlsApiService>();
 builder.Services.AddSingleton<ITideAnalysisService, TideAnalysisService>();
 
-builder.Services.AddCors(options =>
+var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? [];
+
+if (allowedOrigins.Length > 0)
 {
-    options.AddDefaultPolicy(policy =>
+    builder.Services.AddCors(options =>
     {
-        policy.WithOrigins("http://localhost:5173")
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        options.AddDefaultPolicy(policy =>
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        });
     });
-});
+}
 
 var app = builder.Build();
 
-app.UseCors();
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+if (allowedOrigins.Length > 0)
+{
+    app.UseCors();
+}
+
 app.MapControllers();
+app.MapFallbackToFile("index.html");
 
 app.Run();
