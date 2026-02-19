@@ -205,7 +205,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
             );
           })()}
         </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
+        <div className="hidden sm:flex flex-col items-end gap-1.5 shrink-0">
           <button
             onClick={handleResetZoom}
             className="px-3 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
@@ -224,6 +224,18 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         <div className="min-w-[600px] h-[320px]">
           <Line key={predictions.from + predictions.to} ref={chartRef} data={data} options={options} />
         </div>
+      </div>
+      <div className="flex sm:hidden items-center justify-center gap-1.5 mt-3">
+          <button onClick={() => onShiftDays(-30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&laquo; 30d</button>
+          <button onClick={() => onShiftDays(-7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&lsaquo; 7d</button>
+          <button
+            onClick={handleResetZoom}
+            className="px-3 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+          >
+            Reset Zoom
+          </button>
+          <button onClick={() => onShiftDays(7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">7d &rsaquo;</button>
+          <button onClick={() => onShiftDays(30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">30d &raquo;</button>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-400">
         <div className="flex items-center gap-1.5">
