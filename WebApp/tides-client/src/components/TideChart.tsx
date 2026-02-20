@@ -178,6 +178,10 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       },
       legend: { display: false },
       zoom: {
+        pan: {
+          enabled: true,
+          mode: 'x' as const,
+        },
         zoom: {
           wheel: { enabled: true },
           pinch: { enabled: true },
@@ -220,10 +224,8 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           </div>
         </div>
       </div>
-      <div className="w-full overflow-x-auto">
-        <div className="min-w-[600px] h-[320px]">
-          <Line ref={chartRef} data={data} options={options} />
-        </div>
+      <div className="w-full h-[320px] touch-none">
+        <Line ref={chartRef} data={data} options={options} />
       </div>
       <div className="flex sm:hidden items-center justify-center gap-1.5 mt-3">
           <button onClick={() => onShiftDays(-30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&laquo; 30d</button>
