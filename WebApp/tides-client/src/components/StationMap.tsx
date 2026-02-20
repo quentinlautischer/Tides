@@ -42,6 +42,7 @@ export default function StationMap({ station }: Props) {
           center={station ? [station.latitude, station.longitude] : CANADA_CENTER}
           zoom={station ? STATION_ZOOM : DEFAULT_ZOOM}
           scrollWheelZoom={true}
+          zoomControl={false}
           className="h-full w-full"
         >
           <TileLayer

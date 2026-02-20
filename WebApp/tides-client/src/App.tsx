@@ -6,6 +6,7 @@ import DatePicker from './components/DatePicker';
 import RangeSelector from './components/RangeSelector';
 import TideChart from './components/TideChart';
 import StationMap from './components/StationMap';
+import LowestTidesTable from './components/LowestTidesTable';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useTidePredictions, useTideAnalysis } from './hooks/useTidePredictions';
 import type { Station } from './types';
@@ -88,6 +89,10 @@ function App() {
             analysis={analysis.data}
             isLoading={predictions.isLoading}
             onShiftDays={handleShiftDays}
+          />
+          <LowestTidesTable
+            analysis={analysis.data}
+            isLoading={analysis.isLoading}
           />
         </ErrorBoundary>
       )}
