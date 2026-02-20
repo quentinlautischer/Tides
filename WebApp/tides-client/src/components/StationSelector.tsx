@@ -5,9 +5,11 @@ import type { Station } from '../types';
 interface Props {
   selectedStation: Station | null;
   onSelect: (station: Station) => void;
+  showMap: boolean;
+  onToggleMap: () => void;
 }
 
-export default function StationSelector({ selectedStation, onSelect }: Props) {
+export default function StationSelector({ selectedStation, onSelect, showMap, onToggleMap }: Props) {
   const [query, setQuery] = useState(selectedStation?.officialName ?? '');
   const [isOpen, setIsOpen] = useState(false);
   const { data: stations, isLoading } = useStations(query);
@@ -38,8 +40,16 @@ export default function StationSelector({ selectedStation, onSelect }: Props) {
         className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
       />
       {selectedStation && !isOpen && (
-        <div className="mt-1 text-sm text-gray-500">
-          Selected: <span className="font-medium text-gray-300">{selectedStation.officialName}</span> ({selectedStation.code})
+        <div className="mt-1 flex items-center justify-between text-sm text-gray-500">
+          <span>
+            Selected: <span className="font-medium text-gray-300">{selectedStation.officialName}</span> ({selectedStation.code})
+          </span>
+          <button
+            onClick={onToggleMap}
+            className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+          >
+            {showMap ? 'Hide Map' : 'Show Map'}
+          </button>
         </div>
       )}
       {isOpen && (

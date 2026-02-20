@@ -27,6 +27,7 @@ function App() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [day, setDay] = useState(now.getDate());
   const [rangeDays, setRangeDays] = useState(30);
+  const [showMap, setShowMap] = useState(false);
 
   const handleSelectStation = useCallback((station: Station) => {
     setSelectedStation(station);
@@ -59,7 +60,7 @@ function App() {
   return (
     <Layout>
       <div className="grid gap-4 sm:grid-cols-2">
-        <StationSelector selectedStation={selectedStation} onSelect={handleSelectStation} />
+        <StationSelector selectedStation={selectedStation} onSelect={handleSelectStation} showMap={showMap} onToggleMap={() => setShowMap((v) => !v)} />
         <div className="order-3 sm:order-none">
           <DatePicker
             year={year}
@@ -68,9 +69,11 @@ function App() {
             onChange={(y, m, d) => { setYear(y); setMonth(m); setDay(d); }}
           />
         </div>
-        <div className="order-2 sm:order-none">
-          <StationMap station={selectedStation} />
-        </div>
+        {showMap && (
+          <div className="order-2 sm:order-none">
+            <StationMap station={selectedStation} />
+          </div>
+        )}
         <div className="order-4 sm:order-none">
           <RangeSelector selectedDays={rangeDays} onChange={setRangeDays} />
         </div>
