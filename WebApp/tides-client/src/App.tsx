@@ -7,8 +7,9 @@ import RangeSelector from './components/RangeSelector';
 import TideChart from './components/TideChart';
 import StationMap from './components/StationMap';
 import LowestTidesTable from './components/LowestTidesTable';
+import CurrentTideTile from './components/CurrentTideTile';
 import ErrorBoundary from './components/ErrorBoundary';
-import { useTidePredictions, useTideAnalysis } from './hooks/useTidePredictions';
+import { useTidePredictions, useTideAnalysis, useCurrentTideLevel } from './hooks/useTidePredictions';
 import type { Station } from './types';
 
 function loadCachedStation(): Station | null {
@@ -54,11 +55,14 @@ function App() {
   const stationCode = selectedStation?.code ?? null;
   const predictions = useTidePredictions(stationCode, fromStr, toStr);
   const analysis = useTideAnalysis(stationCode, fromStr, toStr);
+  const current = useCurrentTideLevel(stationCode);
 
   const isError = predictions.isError || analysis.isError;
 
   return (
     <Layout>
+      <CurrentTideTile current={current.data} isLoading={current.isLoading} />
+
       <div className="grid gap-4 sm:grid-cols-2">
         <StationSelector selectedStation={selectedStation} onSelect={handleSelectStation} showMap={showMap} onToggleMap={() => setShowMap((v) => !v)} />
         <div className="order-3 sm:order-none">

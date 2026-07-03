@@ -122,6 +122,40 @@ public class IwlsApiService : IIwlsApiService
         return dataPoints;
     }
 
+    public async Task<List<TideDataPoint>> GetObservedWaterLevelAsync(string stationId, DateTime from, DateTime to)
+    {
+        var cacheKey = $"wlo_{stationId}_{from:yyyyMMddHHmm}_{to:yyyyMMddHHmm}";
+        if (_cache.TryGetValue(cacheKey, out List<TideDataPoint>? cached))
+            return cached!;
+
+        var fromStr = from.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
+        var toStr = to.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
+        var url = $"stations/{stationId}/data?time-series-code=wlo&from={fromStr}&to={toStr}&resolution=FIFTEEN_MINUTES";
+
+        var dataPoints = new List<TideDataPoint>();
+        try
+        {
+            var response = await RateLimitedGetAsync(url);
+            var rawData = await response.Content.ReadFromJsonAsync<List<IwlsDataPoint>>(JsonOptions);
+            if (rawData != null)
+            {
+                dataPoints.AddRange(rawData.Select(d => new TideDataPoint
+                {
+                    Timestamp = DateTime.SpecifyKind(d.EventDate, DateTimeKind.Utc),
+                    Value = d.Value
+                }));
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            // Not every station has a live gauge - callers fall back to predictions.
+            _logger.LogDebug(ex, "No observed water level available for station {StationId}", stationId);
+        }
+
+        _cache.Set(cacheKey, dataPoints, TimeSpan.FromMinutes(5));
+        return dataPoints;
+    }
+
     private async Task<HttpResponseMessage> RateLimitedGetAsync(string url)
     {
         await _rateLimiter.WaitAsync();

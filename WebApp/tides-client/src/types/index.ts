@@ -32,3 +32,10 @@ export interface LowestTideAnalysis {
   timeOfDay: string;
   dailyLows: DailyTideSummary[];
 }
+
+export interface CurrentTideLevel {
+  value: number;
+  timestamp: string;
+  trend: 'Rising' | 'Falling' | 'Steady';
+  source: 'Observed' | 'Predicted';
+}

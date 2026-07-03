@@ -1,4 +1,4 @@
-import type { Station, TidePredictionResponse, LowestTideAnalysis } from '../types';
+import type { Station, TidePredictionResponse, LowestTideAnalysis, CurrentTideLevel } from '../types';
 
 const BASE = '/api';
 
@@ -15,6 +15,12 @@ export async function getTidePredictions(
 ): Promise<TidePredictionResponse> {
   const res = await fetch(`${BASE}/tides/${code}?from=${from}&to=${to}`);
   if (!res.ok) throw new Error('Failed to fetch tide predictions');
+  return res.json();
+}
+
+export async function getCurrentTideLevel(code: string): Promise<CurrentTideLevel> {
+  const res = await fetch(`${BASE}/tides/${code}/current`);
+  if (!res.ok) throw new Error('Failed to fetch current tide level');
   return res.json();
 }
 

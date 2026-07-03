@@ -48,6 +48,31 @@ public class TidePredictionsController : ControllerBase
         });
     }
 
+    [HttpGet("{code}/current")]
+    public async Task<IActionResult> GetCurrentLevel(string code)
+    {
+        var station = await _iwlsService.GetStationByCodeAsync(code);
+        if (station == null)
+            return NotFound(new { error = $"Station with code '{code}' not found" });
+
+        var now = DateTime.UtcNow;
+
+        var points = await _iwlsService.GetObservedWaterLevelAsync(station.Id, now.AddHours(-3), now.AddMinutes(15));
+        var source = "Observed";
+
+        if (points.Count < 2)
+        {
+            points = await _iwlsService.GetTidePredictionsAsync(station.Id, now.AddHours(-1), now.AddHours(1));
+            source = "Predicted";
+        }
+
+        var current = _analysisService.ComputeCurrentLevel(points, now, station.TimeZone, source);
+        if (current == null)
+            return NotFound(new { error = "No current tide data available for this station" });
+
+        return Ok(current);
+    }
+
     [HttpGet("{code}/analysis")]
     public async Task<IActionResult> GetAnalysis(string code, [FromQuery] string from, [FromQuery] string to)
     {
