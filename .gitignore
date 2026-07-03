@@ -25,6 +25,8 @@ Thumbs.db
 
 # Build output
 wwwroot/
+publish/
+deploy.zip
 
 # Environment
 .env
