@@ -8,6 +8,10 @@ namespace Tides.Api.Controllers;
 [Route("api/tides")]
 public class TidePredictionsController : ControllerBase
 {
+    // Tide data is inherently a yearly cycle; a span beyond this has no legitimate use case
+    // and would otherwise queue thousands of sequential upstream requests (see GetTidePredictionsAsync).
+    private const int MaxDateRangeDays = 366;
+
     private readonly IIwlsApiService _iwlsService;
     private readonly ITideAnalysisService _analysisService;
 
@@ -15,6 +19,17 @@ public class TidePredictionsController : ControllerBase
     {
         _iwlsService = iwlsService;
         _analysisService = analysisService;
+    }
+
+    private static string? ValidateDateRange(DateTime fromDate, DateTime toDate)
+    {
+        if (toDate < fromDate)
+            return "Invalid date range: 'to' must not be earlier than 'from'.";
+
+        if ((toDate - fromDate).TotalDays > MaxDateRangeDays)
+            return $"Invalid date range: span must not exceed {MaxDateRangeDays} days.";
+
+        return null;
     }
 
     [HttpGet("{code}")]
@@ -29,6 +44,10 @@ public class TidePredictionsController : ControllerBase
 
         fromDate = DateTime.SpecifyKind(fromDate, DateTimeKind.Utc);
         toDate = DateTime.SpecifyKind(toDate, DateTimeKind.Utc);
+
+        var rangeError = ValidateDateRange(fromDate, toDate);
+        if (rangeError != null)
+            return BadRequest(new { error = rangeError });
 
         var dataPoints = await _iwlsService.GetTidePredictionsAsync(station.Id, fromDate, toDate);
 
@@ -85,6 +104,10 @@ public class TidePredictionsController : ControllerBase
 
         fromDate = DateTime.SpecifyKind(fromDate, DateTimeKind.Utc);
         toDate = DateTime.SpecifyKind(toDate, DateTimeKind.Utc);
+
+        var rangeError = ValidateDateRange(fromDate, toDate);
+        if (rangeError != null)
+            return BadRequest(new { error = rangeError });
 
         var dataPoints = await _iwlsService.GetTidePredictionsAsync(station.Id, fromDate, toDate);
         var analysis = _analysisService.Analyze(dataPoints, station.TimeZone);
