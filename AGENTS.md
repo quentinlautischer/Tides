@@ -77,17 +77,33 @@ Only `WebApp/` is deployed; `ConsoleCLI/` is a local-only script with no deploym
 The app is designed to ship as a single deployable unit: the API serves the client's built assets as static files (`UseDefaultFiles` + `UseStaticFiles` + `MapFallbackToFile` in `Program.cs`), reading from `Tides.Api/wwwroot/`, which is gitignored as a build artifact.
 This was set up in commit `757f7de` ("Add static file serving and deploy to Azure App Service") together with making CORS conditional, since a same-origin deployment doesn't need CORS at all (production `appsettings.json` has no `AllowedOrigins`, so CORS middleware never registers in that environment).
 
-There is no CI/CD pipeline, publish profile, or infrastructure-as-code checked into this repo, so deployment today is a manual process.
-The general shape, based on what `Program.cs` expects:
+There is no CI/CD pipeline, publish profile, or infrastructure-as-code checked into this repo, so deployment is a manual process done from the command line.
 
-1. Build the client: `cd WebApp/tides-client && npm run build` (outputs to `dist/`).
-2. Copy the contents of `tides-client/dist/` into `WebApp/Tides.Api/wwwroot/`.
-3. Publish the API: `cd WebApp/Tides.Api && dotnet publish -c Release`.
-4. Deploy the publish output to an Azure App Service (e.g. `az webapp up`, zip deploy, or the Visual Studio / VS Code Azure publish flow).
+**Target resource** (confirmed via `az webapp list`, not recorded anywhere else in the repo):
+- App Service: `tides-app-ql`
+- Resource group: `Tides`
+- Region: Canada Central
+- App Service Plan: `TidesPlan`, SKU `F1` (free tier)
+- URL: http://tides-app-ql.azurewebsites.net
 
-I don't have the actual App Service name, resource group, or region this deploys to, it isn't recorded anywhere in the repo or in the root `CLAUDE.md` Azure section, and my Azure CLI session had expired when I checked.
-**Q: what's the target App Service (name + resource group), and is there a script or documented process you already use for steps 1-4, or has this always been done by hand?**
-Once I know that, I can replace the generic steps above with the exact commands and record them here.
+**Steps** (run from `WebApp/Tides.Api/`, after `az login` and `az account set --subscription 43c949f7-2115-4366-8461-9639f9101f0b`):
+
+```
+cd WebApp/tides-client && npm run build
+cd ../Tides.Api
+rm -rf wwwroot && mkdir wwwroot && cp -r ../tides-client/dist/. wwwroot/
+rm -rf publish && dotnet publish -c Release -o ./publish
+cd publish && powershell -Command "Compress-Archive -Path * -DestinationPath ../deploy.zip -Force" && cd ..
+az webapp deploy --resource-group Tides --name tides-app-ql --src-path deploy.zip --type zip
+```
+
+`publish/`, `deploy.zip`, and `wwwroot/` are all gitignored build artifacts, delete them after a deploy.
+
+**Gotchas hit doing this the first time (2026-07-03):**
+- The Azure CLI refresh token expires after ~90 days of inactivity. If `az webapp list` or similar errors with `AADSTS700082` use az login command for an interactive login from Q.
+- `tides-app-ql` has SCM/FTP **basic-auth publishing credentials disabled** (`az resource show --resource-group Tides --name scm --namespace Microsoft.Web --resource-type basicPublishingCredentialsPolicies --parent sites/tides-app-ql` → `allow: false`). This is a deliberate security setting, don't re-enable it to work around auth failures.
+- Because of that, an old Azure CLI (2.44.1, the version `winget` had installed) gets a 401 on `az webapp deploy`, it only knows the legacy Kudu basic-auth flow. CLI **2.87.0+** works, it deploys using an Azure AD token instead. If deploy gets a 401, check `az version` first and `winget upgrade --id Microsoft.AzureCLI` if it's old.
+- On this machine, `winget upgrade` moved the install from `C:\Program Files (x86)\...` (32-bit) to `C:\Program Files\...` (64-bit) and the old path no longer exists. A shell with the old PATH cached won't find `az` after upgrading, prepend the new `...\Microsoft SDKs\Azure\CLI2\wbin` to `PATH` for the session (or open a fresh terminal).
 
 ## Testing
 
