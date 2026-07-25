@@ -96,6 +96,9 @@ function App() {
             analysis={analysis.data}
             isLoading={predictions.isLoading}
             onShiftDays={handleShiftDays}
+            year={year}
+            month={month}
+            day={day}
           />
           <LowestTidesTable
             analysis={analysis.data}

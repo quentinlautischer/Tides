@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback } from 'react';
+import { useMemo, useRef, useCallback, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -67,6 +67,9 @@ interface Props {
   analysis: LowestTideAnalysis | undefined;
   isLoading: boolean;
   onShiftDays: (days: number) => void;
+  year: number;
+  month: number;
+  day: number;
 }
 
 // Color stops for 12AM → 12PM (mirrored for PM → AM)
@@ -108,8 +111,19 @@ function timeOfDayColor(hour: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-export default function TideChart({ predictions, analysis, isLoading, onShiftDays }: Props) {
+export default function TideChart({ predictions, analysis, isLoading, onShiftDays, year, month, day }: Props) {
   const chartRef = useRef<ChartJS<'line'>>(null);
+  const [timeInput, setTimeInput] = useState('');
+  const [xRange, setXRange] = useState<{ min: number; max: number } | null>(null);
+
+  // The zoom plugin mutates the chart's x-scale bounds directly on user pan/zoom.
+  // Mirror that into React state so the declarative `options.scales.x` below stays
+  // in sync, since react-chartjs-2 shallow-merges a fresh `options` object onto the
+  // chart on every render and would otherwise silently wipe an imperative-only zoom.
+  const syncXRangeFromChart = useCallback((chart: ChartJS) => {
+    const xScale = chart.scales.x;
+    if (xScale) setXRange({ min: xScale.min, max: xScale.max });
+  }, []);
 
   const chartPoints = useMemo(() => {
     if (!predictions) return [];
@@ -168,8 +182,79 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     });
   }, [predictions, currentIdx, lowestIdx]);
 
+  // Reproduces exactly what mousing over a point on the line would show, and
+  // re-centers the visible x-axis window on that point, preserving whatever
+  // zoom width is currently in effect. Runs directly in the input's onChange
+  // handler (not an effect) since it's driven by a discrete user action and
+  // needs the chart's pre-update scale bounds to compute the new center.
+  const handleTimeInputChange = useCallback((value: string) => {
+    setTimeInput(value);
+
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const clearHover = () => {
+      chart.setActiveElements([]);
+      chart.tooltip?.setActiveElements([], { x: 0, y: 0 });
+      chart.update();
+    };
+
+    if (!value || !predictions || predictions.dataPoints.length === 0) {
+      clearHover();
+      return;
+    }
+
+    const [hours, minutes] = value.split(':').map(Number);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return;
+    const targetTs = new Date(year, month - 1, day, hours, minutes).getTime();
+
+    const points = predictions.dataPoints;
+    const first = parseISO(points[0].timestamp).getTime();
+    const last = parseISO(points[points.length - 1].timestamp).getTime();
+    if (targetTs < first || targetTs > last) {
+      clearHover();
+      return;
+    }
+
+    let idx = 0;
+    let closestDiff = Infinity;
+    points.forEach((dp, i) => {
+      const diff = Math.abs(parseISO(dp.timestamp).getTime() - targetTs);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        idx = i;
+      }
+    });
+
+    const targetX = chartPoints[idx].x;
+    const dataMin = chartPoints[0].x;
+    const dataMax = chartPoints[chartPoints.length - 1].x;
+    const xScale = chart.scales.x;
+    const halfWidth = (xScale.max - xScale.min) / 2;
+    let newMin = targetX - halfWidth;
+    let newMax = targetX + halfWidth;
+    if (newMin < dataMin) {
+      newMax += dataMin - newMin;
+      newMin = dataMin;
+    }
+    if (newMax > dataMax) {
+      newMin -= newMax - dataMax;
+      newMax = dataMax;
+    }
+    newMin = Math.max(newMin, dataMin);
+    newMax = Math.min(newMax, dataMax);
+    setXRange({ min: newMin, max: newMax });
+
+    const element = chart.getDatasetMeta(0).data[idx];
+    if (!element) return;
+    chart.setActiveElements([{ datasetIndex: 0, index: idx }]);
+    chart.tooltip?.setActiveElements([{ datasetIndex: 0, index: idx }], { x: element.x, y: element.y });
+    chart.update();
+  }, [predictions, year, month, day, chartPoints]);
+
   const handleResetZoom = useCallback(() => {
     chartRef.current?.resetZoom();
+    setXRange(null);
   }, []);
 
   if (isLoading) {
@@ -220,6 +305,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         },
         grid: { color: 'rgba(255,255,255,0.06)' },
         ticks: { color: '#9ca3af', font: { size: 12 } },
+        ...(xRange ? { min: xRange.min, max: xRange.max } : {}),
       },
       y: {
         title: {
@@ -250,11 +336,13 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         pan: {
           enabled: true,
           mode: 'x' as const,
+          onPanComplete: ({ chart }) => syncXRangeFromChart(chart),
         },
         zoom: {
           wheel: { enabled: true },
           pinch: { enabled: true },
           mode: 'x' as const,
+          onZoomComplete: ({ chart }) => syncXRangeFromChart(chart),
         },
       },
     },
@@ -279,6 +367,25 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           })()}
         </div>
         <div className="hidden sm:flex flex-col items-end gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="jump-to-time" className="text-xs font-medium text-gray-400">Jump to time</label>
+            <input
+              id="jump-to-time"
+              type="time"
+              value={timeInput}
+              onChange={(e) => handleTimeInputChange(e.target.value)}
+              className="px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-400"
+            />
+            {timeInput && (
+              <button
+                onClick={() => handleTimeInputChange('')}
+                aria-label="Clear jump-to-time"
+                className="px-1.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+              >
+                &times;
+              </button>
+            )}
+          </div>
           <button
             onClick={handleResetZoom}
             className="px-3 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
@@ -297,6 +404,25 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         <Line ref={chartRef} data={data} options={options} />
       </div>
       <div className="flex sm:hidden items-center justify-center gap-1.5 mt-3">
+          <label htmlFor="jump-to-time-mobile" className="text-xs font-medium text-gray-400">Jump to time</label>
+          <input
+            id="jump-to-time-mobile"
+            type="time"
+            value={timeInput}
+            onChange={(e) => handleTimeInputChange(e.target.value)}
+            className="px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-400"
+          />
+          {timeInput && (
+            <button
+              onClick={() => handleTimeInputChange('')}
+              aria-label="Clear jump-to-time"
+              className="px-1.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+            >
+              &times;
+            </button>
+          )}
+      </div>
+      <div className="flex sm:hidden items-center justify-center gap-1.5 mt-1.5">
           <button onClick={() => onShiftDays(-30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&laquo; 30d</button>
           <button onClick={() => onShiftDays(-7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&lsaquo; 7d</button>
           <button
