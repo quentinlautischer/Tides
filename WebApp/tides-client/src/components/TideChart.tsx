@@ -8,15 +8,59 @@ import {
   Filler,
   Tooltip as ChartTooltip,
   TimeScale,
+  Interaction,
 } from 'chart.js';
+import { getRelativePosition } from 'chart.js/helpers';
 import zoomPlugin from 'chartjs-plugin-zoom';
 import 'chartjs-adapter-date-fns';
 import { Line } from 'react-chartjs-2';
 import { parseISO, format } from 'date-fns';
-import type { ChartOptions } from 'chart.js';
+import type { ChartOptions, ChartEvent, InteractionModeFunction } from 'chart.js';
 import type { TidePredictionResponse, LowestTideAnalysis } from '../types';
 
+declare module 'chart.js' {
+  interface InteractionModeMap {
+    peakTrough: InteractionModeFunction;
+  }
+}
+
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, ChartTooltip, TimeScale, zoomPlugin);
+
+// Custom interaction mode: snaps hover/tooltip to the nearest local extremum
+// (a tide peak or trough) rather than the nearest raw data point, so scrubbing
+// across the line jumps between highs and lows instead of stepping through
+// every point in between.
+Interaction.modes.peakTrough = (chart, e: ChartEvent) => {
+  const meta = chart.getDatasetMeta(0);
+  const elements = meta.data;
+  const values = (chart.data.datasets[0]?.data ?? []) as { y: number }[];
+  if (!elements || elements.length === 0 || values.length !== elements.length) return [];
+
+  const extremaIndices: number[] = [];
+  for (let i = 1; i < values.length - 1; i++) {
+    const prev = values[i - 1].y;
+    const curr = values[i].y;
+    const next = values[i + 1].y;
+    if ((curr > prev && curr > next) || (curr < prev && curr < next)) {
+      extremaIndices.push(i);
+    }
+  }
+  if (extremaIndices.length === 0) return [];
+
+  const position = getRelativePosition(e, chart);
+  let closestIndex = extremaIndices[0];
+  let closestDistance = Infinity;
+  for (const idx of extremaIndices) {
+    const element = elements[idx];
+    if (!element) continue;
+    const distance = Math.abs(element.x - position.x);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = idx;
+    }
+  }
+  return [{ element: elements[closestIndex], datasetIndex: 0, index: closestIndex }];
+};
 
 interface Props {
   predictions: TidePredictionResponse | undefined;
@@ -84,20 +128,45 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     });
   }, [predictions]);
 
+  const now = new Date().getTime();
+
+  const currentIdx = useMemo(() => {
+    if (!predictions || predictions.dataPoints.length === 0) return -1;
+    const points = predictions.dataPoints;
+    const first = parseISO(points[0].timestamp).getTime();
+    const last = parseISO(points[points.length - 1].timestamp).getTime();
+    if (now < first || now > last) return -1;
+
+    let closestIdx = 0;
+    let closestDiff = Infinity;
+    points.forEach((dp, i) => {
+      const diff = Math.abs(parseISO(dp.timestamp).getTime() - now);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestIdx = i;
+      }
+    });
+    return closestIdx;
+  }, [predictions, now]);
+
   const lowestIdx = useMemo(() => {
-    if (!analysis || !predictions) return -1;
-    return predictions.dataPoints.findIndex((dp) => dp.value === analysis.lowestTide.value);
-  }, [analysis, predictions]);
+    if (!predictions || !analysis) return -1;
+    return predictions.dataPoints.findIndex((dp) => dp.timestamp === analysis.lowestTide.timestamp);
+  }, [predictions, analysis]);
 
   const pointRadii = useMemo(() => {
     if (!predictions) return [];
-    return predictions.dataPoints.map((_, i) => (i === lowestIdx ? 6 : 0));
-  }, [predictions, lowestIdx]);
+    return predictions.dataPoints.map((_, i) => (i === currentIdx || i === lowestIdx ? 6 : 0));
+  }, [predictions, currentIdx, lowestIdx]);
 
   const pointColors = useMemo(() => {
     if (!predictions) return [];
-    return predictions.dataPoints.map((_, i) => (i === lowestIdx ? '#ef4444' : 'transparent'));
-  }, [predictions, lowestIdx]);
+    return predictions.dataPoints.map((_, i) => {
+      if (i === currentIdx) return '#67e8f9';
+      if (i === lowestIdx) return 'oklch(70.4% 0.191 22.216)';
+      return 'transparent';
+    });
+  }, [predictions, currentIdx, lowestIdx]);
 
   const handleResetZoom = useCallback(() => {
     chartRef.current?.resetZoom();
@@ -121,7 +190,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         borderWidth: 2,
         pointRadius: pointRadii,
         pointBackgroundColor: pointColors,
-        pointBorderColor: pointColors.map((c) => (c === '#ef4444' ? '#1f2937' : 'transparent')),
+        pointBorderColor: pointColors.map((c) => (c === 'transparent' ? 'transparent' : '#1f2937')),
         pointBorderWidth: pointRadii.map((r) => (r > 0 ? 2 : 0)),
         pointHoverRadius: 4,
         pointHoverBackgroundColor: '#9ca3af',
@@ -138,7 +207,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     responsive: true,
     maintainAspectRatio: false,
     interaction: {
-      mode: 'index',
+      mode: 'peakTrough',
       intersect: false,
     },
     scales: {
@@ -256,8 +325,13 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: timeOfDayColor(18) }}></span>
           Evening
         </div>
+        <span className="hidden sm:inline-block w-px h-4 bg-gray-700" aria-hidden="true"></span>
         <div className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 bg-red-500 rounded-full"></span>
+          <span className="inline-block w-3 h-3 bg-cyan-300 rounded-full"></span>
+          Current tide
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: 'oklch(70.4% 0.191 22.216)' }}></span>
           Lowest tide
         </div>
       </div>
