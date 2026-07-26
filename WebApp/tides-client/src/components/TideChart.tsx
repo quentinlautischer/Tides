@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback, useState } from 'react';
+import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -147,6 +147,31 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [timeInput, setTimeInput] = useState('');
   const [xRange, setXRange] = useState<{ min: number; max: number } | null>(null);
+
+  // `predictions` only changes reference once a genuinely new dataset has
+  // landed (React Query keeps the previous reference during a background
+  // refetch via keepPreviousData, and structural sharing skips it entirely
+  // if a revalidation returns identical data). That makes it a reliable
+  // signal that the loaded range actually changed, so reset any zoom left
+  // over from the previous range here rather than leaving it stale and
+  // pointing at data that may no longer exist.
+  const [predictionsForZoom, setPredictionsForZoom] = useState(predictions);
+  if (predictions !== predictionsForZoom) {
+    setPredictionsForZoom(predictions);
+    setXRange(null);
+    setTimeInput('');
+  }
+
+  // The chart's active/hover elements are imperative chart.js state (index
+  // references into the dataset), not React state, so they're cleared here
+  // via the ref rather than in the render-time adjustment above.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.setActiveElements([]);
+    chart.tooltip?.setActiveElements([], { x: 0, y: 0 });
+    chart.update();
+  }, [predictions]);
 
   // The zoom plugin mutates the chart's x-scale bounds directly on user pan/zoom.
   // Mirror that into React state so the declarative `options.scales.x` below stays
