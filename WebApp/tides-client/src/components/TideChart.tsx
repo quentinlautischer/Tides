@@ -15,7 +15,7 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 import 'chartjs-adapter-date-fns';
 import { Line } from 'react-chartjs-2';
 import { parseISO, format } from 'date-fns';
-import type { ChartOptions, ChartEvent, InteractionModeFunction } from 'chart.js';
+import type { ChartOptions, ChartEvent, InteractionModeFunction, Plugin } from 'chart.js';
 import type { TidePredictionResponse, LowestTideAnalysis } from '../types';
 
 declare module 'chart.js' {
@@ -24,7 +24,39 @@ declare module 'chart.js' {
   }
 }
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, ChartTooltip, TimeScale, zoomPlugin);
+// Shades Saturday/Sunday behind the line so weekends are visible at a glance.
+// Draws in `beforeDraw` (before the grid/axes render) so gridlines stay visible
+// on top of the fill instead of being covered by it.
+const weekendShadingPlugin: Plugin<'line'> = {
+  id: 'weekendShading',
+  beforeDraw(chart) {
+    const { ctx, chartArea, scales } = chart;
+    const xScale = scales.x;
+    if (!chartArea || !xScale) return;
+
+    const dayStart = new Date(xScale.min);
+    dayStart.setHours(0, 0, 0, 0);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.08)';
+    while (dayStart.getTime() < xScale.max) {
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      const dayOfWeek = dayStart.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        const xStart = xScale.getPixelForValue(Math.max(dayStart.getTime(), xScale.min));
+        const xEnd = xScale.getPixelForValue(Math.min(dayEnd.getTime(), xScale.max));
+        ctx.fillRect(xStart, chartArea.top, xEnd - xStart, chartArea.bottom - chartArea.top);
+      }
+
+      dayStart.setDate(dayStart.getDate() + 1);
+    }
+    ctx.restore();
+  },
+};
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, ChartTooltip, TimeScale, zoomPlugin, weekendShadingPlugin);
 
 // Custom interaction mode: snaps hover/tooltip to the nearest local extremum
 // (a tide peak or trough) rather than the nearest raw data point, so scrubbing
@@ -81,11 +113,11 @@ interface Props {
 interface ColorStop { pos: number; r: number; g: number; b: number }
 
 const COLOR_STOPS: ColorStop[] = [
-  { pos: 0.0,  r: 107, g:  33, b: 168 }, // #6b21a8
-  { pos: 0.25, r:  30, g:  58, b: 138 }, // #1e3a8a
-  { pos: 0.5,  r:  14, g: 165, b: 233 }, // #0ea5e9
-  { pos: 0.75, r: 234, g: 179, b:   8 }, // #eab308
-  { pos: 1.0,  r: 245, g: 158, b:  11 }, // #f59e0b
+  { pos: 0.0, r: 107, g: 33, b: 168 }, // #6b21a8
+  { pos: 0.25, r: 30, g: 58, b: 138 }, // #1e3a8a
+  { pos: 0.5, r: 14, g: 165, b: 233 }, // #0ea5e9
+  { pos: 0.75, r: 234, g: 179, b: 8 }, // #eab308
+  { pos: 1.0, r: 245, g: 158, b: 11 }, // #f59e0b
 ];
 
 function timeOfDayColor(hour: number): string {
@@ -404,35 +436,35 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         <Line ref={chartRef} data={data} options={options} />
       </div>
       <div className="flex sm:hidden items-center justify-center gap-1.5 mt-3">
-          <label htmlFor="jump-to-time-mobile" className="text-xs font-medium text-gray-400">Jump to time</label>
-          <input
-            id="jump-to-time-mobile"
-            type="time"
-            value={timeInput}
-            onChange={(e) => handleTimeInputChange(e.target.value)}
-            className="px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-400"
-          />
-          {timeInput && (
-            <button
-              onClick={() => handleTimeInputChange('')}
-              aria-label="Clear jump-to-time"
-              className="px-1.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
-            >
-              &times;
-            </button>
-          )}
+        <label htmlFor="jump-to-time-mobile" className="text-xs font-medium text-gray-400">Jump to time</label>
+        <input
+          id="jump-to-time-mobile"
+          type="time"
+          value={timeInput}
+          onChange={(e) => handleTimeInputChange(e.target.value)}
+          className="px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-400"
+        />
+        {timeInput && (
+          <button
+            onClick={() => handleTimeInputChange('')}
+            aria-label="Clear jump-to-time"
+            className="px-1.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+          >
+            &times;
+          </button>
+        )}
       </div>
       <div className="flex sm:hidden items-center justify-center gap-1.5 mt-1.5">
-          <button onClick={() => onShiftDays(-30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&laquo; 30d</button>
-          <button onClick={() => onShiftDays(-7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&lsaquo; 7d</button>
-          <button
-            onClick={handleResetZoom}
-            className="px-3 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
-          >
-            Reset Zoom
-          </button>
-          <button onClick={() => onShiftDays(7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">7d &rsaquo;</button>
-          <button onClick={() => onShiftDays(30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">30d &raquo;</button>
+        <button onClick={() => onShiftDays(-30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&laquo; 30d</button>
+        <button onClick={() => onShiftDays(-7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&lsaquo; 7d</button>
+        <button
+          onClick={handleResetZoom}
+          className="px-3 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+        >
+          Reset Zoom
+        </button>
+        <button onClick={() => onShiftDays(7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">7d &rsaquo;</button>
+        <button onClick={() => onShiftDays(30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">30d &raquo;</button>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-400">
         <div className="flex items-center gap-1.5">
@@ -452,6 +484,10 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           Evening
         </div>
         <span className="hidden sm:inline-block w-px h-4 bg-gray-700" aria-hidden="true"></span>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: 'rgba(148, 163, 184, 0.35)' }}></span>
+          Weekend
+        </div>
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 bg-cyan-300 rounded-full"></span>
           Current tide
