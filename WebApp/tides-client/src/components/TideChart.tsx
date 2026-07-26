@@ -365,6 +365,12 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       },
       legend: { display: false },
       zoom: {
+        // Without explicit limits, pan/zoom have no bound at all and will
+        // happily scroll or zoom past the edges of the loaded data into
+        // empty space, since nothing beyond it has been fetched.
+        limits: {
+          x: { min: chartPoints[0].x, max: chartPoints[chartPoints.length - 1].x },
+        },
         pan: {
           enabled: true,
           mode: 'x' as const,
