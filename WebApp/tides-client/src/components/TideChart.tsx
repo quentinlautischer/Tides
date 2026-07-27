@@ -143,51 +143,55 @@ function timeOfDayColor(hour: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
+const JUMP_FIELD_BASE =
+  'px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md';
+
 interface JumpDateFieldProps {
   value: string;
   min: string;
   max: string;
   onChange: (value: string) => void;
-  className: string;
 }
 
 // A native date input keeps the platform calendar picker, but its displayed
 // value always carries the year and the segments it's built from can't be
 // restyled portably (the `::-webkit-datetime-edit-*` pseudo-elements are
 // Chromium-only, and hiding just the year field strands its separator). So the
-// real input sits transparent and non-interactive underneath a button that
-// renders the label we want and opens that same picker. The input stays
-// rendered rather than `display: none` because `showPicker()` requires it.
-function JumpDateField({ value, min, max, onChange, className }: JumpDateFieldProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  function openPicker() {
-    const el = inputRef.current;
-    if (!el) return;
-    if (typeof el.showPicker === 'function') el.showPicker();
-    else el.focus();
+// label below is our own, drawn underneath a transparent copy of the real
+// input.
+//
+// The input itself has to be the thing the user actually taps. Mobile browsers
+// only open their date picker in response to a real tap on the control - they
+// ignore programmatic focus, and not all of them expose `showPicker()` - so
+// routing the interaction through a separate button left the field dead on
+// mobile. Desktop is the reverse: clicking a date input focuses a segment
+// without opening the calendar, since only the (invisible here) indicator icon
+// does that, hence the `showPicker()` nudge on click.
+function JumpDateField({ value, min, max, onChange }: JumpDateFieldProps) {
+  function openPicker(el: HTMLInputElement) {
+    if (typeof el.showPicker !== 'function') return;
+    try {
+      el.showPicker();
+    } catch {
+      // Browsers that already opened their own picker on this tap reject the
+      // duplicate call; the picker the user wanted is on screen either way.
+    }
   }
 
   return (
-    <span className="relative inline-flex">
-      <button
-        type="button"
-        onClick={openPicker}
-        aria-label="Jump to date"
-        className={`${className} cursor-pointer`}
-      >
+    <span className="relative inline-flex rounded-md focus-within:ring-1 focus-within:ring-cyan-400">
+      <span aria-hidden="true" className={`${JUMP_FIELD_BASE} whitespace-nowrap`}>
         {value ? format(parseISO(value), 'EEE, MMM d') : 'Date'}
-      </button>
+      </span>
       <input
-        ref={inputRef}
         type="date"
+        aria-label="Jump to date"
         min={min}
         max={max}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        tabIndex={-1}
-        aria-hidden="true"
-        className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
+        onClick={(e) => openPicker(e.currentTarget)}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
       />
     </span>
   );
@@ -297,7 +301,24 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
   // handlers (not an effect) since it's driven by a discrete user action and
   // needs the chart's pre-update scale bounds to compute the new center.
   const handleJumpChange = useCallback((nextDate: string, nextTime: string) => {
-    setDateInput(nextDate);
+    const points = predictions?.dataPoints ?? [];
+    const first = points.length > 0 ? parseISO(points[0].timestamp).getTime() : 0;
+    const last = points.length > 0 ? parseISO(points[points.length - 1].timestamp).getTime() : 0;
+
+    // The input carries min/max, but not every picker enforces them - mobile
+    // ones in particular will happily hand back a day outside the range. Clamp
+    // before it reaches state, otherwise the field sits there showing a date
+    // the chart has no data for while the jump silently does nothing.
+    // `yyyy-MM-dd` compares correctly as a string, so no parsing needed.
+    let date = nextDate;
+    if (date && points.length > 0) {
+      const lo = format(first, 'yyyy-MM-dd');
+      const hi = format(last, 'yyyy-MM-dd');
+      if (date < lo) date = lo;
+      else if (date > hi) date = hi;
+    }
+
+    setDateInput(date);
     setTimeInput(nextTime);
 
     const chart = chartRef.current;
@@ -309,7 +330,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       chart.update();
     };
 
-    if ((!nextDate && !nextTime) || !predictions || predictions.dataPoints.length === 0) {
+    if ((!date && !nextTime) || points.length === 0) {
       clearHover();
       return;
     }
@@ -320,8 +341,8 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     let targetYear = year;
     let targetMonth = month;
     let targetDay = day;
-    if (nextDate) {
-      const [y, m, d] = nextDate.split('-').map(Number);
+    if (date) {
+      const [y, m, d] = date.split('-').map(Number);
       if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return;
       targetYear = y;
       targetMonth = m;
@@ -335,15 +356,11 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       if (Number.isNaN(hours) || Number.isNaN(minutes)) return;
     }
 
-    const targetTs = new Date(targetYear, targetMonth - 1, targetDay, hours, minutes).getTime();
-
-    const points = predictions.dataPoints;
-    const first = parseISO(points[0].timestamp).getTime();
-    const last = parseISO(points[points.length - 1].timestamp).getTime();
-    if (targetTs < first || targetTs > last) {
-      clearHover();
-      return;
-    }
+    // Even an in-range day can overshoot once the time is applied, since the
+    // data starts and ends partway through its boundary days. Pin to the edge
+    // rather than dropping the jump.
+    const rawTs = new Date(targetYear, targetMonth - 1, targetDay, hours, minutes).getTime();
+    const targetTs = Math.min(Math.max(rawTs, first), last);
 
     let idx = 0;
     let closestDiff = Infinity;
@@ -402,8 +419,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
   const rangeStart = format(chartPoints[0].x, 'yyyy-MM-dd');
   const rangeEnd = format(chartPoints[chartPoints.length - 1].x, 'yyyy-MM-dd');
   const hasJump = Boolean(dateInput || timeInput);
-  const jumpFieldClass =
-    'px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-400';
+  const jumpFieldClass = `${JUMP_FIELD_BASE} focus:outline-none focus:ring-1 focus:ring-cyan-400`;
 
   const data = {
     datasets: [
@@ -529,7 +545,6 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
               min={rangeStart}
               max={rangeEnd}
               onChange={(v) => handleJumpChange(v, timeInput)}
-              className={jumpFieldClass}
             />
             <input
               type="time"
@@ -572,7 +587,6 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           min={rangeStart}
           max={rangeEnd}
           onChange={(v) => handleJumpChange(v, timeInput)}
-          className={jumpFieldClass}
         />
         <input
           type="time"
