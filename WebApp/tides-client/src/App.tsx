@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { format, addDays } from 'date-fns';
 import Layout from './components/Layout';
 import StationSelector from './components/StationSelector';
@@ -30,10 +30,10 @@ function App() {
   const [rangeDays, setRangeDays] = useState(30);
   const [showMap, setShowMap] = useState(false);
 
-  const handleSelectStation = useCallback((station: Station) => {
+  function handleSelectStation(station: Station) {
     setSelectedStation(station);
     localStorage.setItem('selectedStation', JSON.stringify(station));
-  }, []);
+  }
 
   const { fromStr, toStr } = useMemo(() => {
     const fromDate = new Date(year, month - 1, day);
@@ -44,13 +44,13 @@ function App() {
     };
   }, [year, month, day, rangeDays]);
 
-  const handleShiftDays = useCallback((days: number) => {
+  function handleShiftDays(days: number) {
     const current = new Date(year, month - 1, day);
     const shifted = addDays(current, days);
     setYear(shifted.getFullYear());
     setMonth(shifted.getMonth() + 1);
     setDay(shifted.getDate());
-  }, [year, month, day]);
+  }
 
   const stationCode = selectedStation?.code ?? null;
   const predictions = useTidePredictions(stationCode, fromStr, toStr);

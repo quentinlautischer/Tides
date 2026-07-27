@@ -143,8 +143,59 @@ function timeOfDayColor(hour: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
+interface JumpDateFieldProps {
+  value: string;
+  min: string;
+  max: string;
+  onChange: (value: string) => void;
+  className: string;
+}
+
+// A native date input keeps the platform calendar picker, but its displayed
+// value always carries the year and the segments it's built from can't be
+// restyled portably (the `::-webkit-datetime-edit-*` pseudo-elements are
+// Chromium-only, and hiding just the year field strands its separator). So the
+// real input sits transparent and non-interactive underneath a button that
+// renders the label we want and opens that same picker. The input stays
+// rendered rather than `display: none` because `showPicker()` requires it.
+function JumpDateField({ value, min, max, onChange, className }: JumpDateFieldProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function openPicker() {
+    const el = inputRef.current;
+    if (!el) return;
+    if (typeof el.showPicker === 'function') el.showPicker();
+    else el.focus();
+  }
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        onClick={openPicker}
+        aria-label="Jump to date"
+        className={`${className} cursor-pointer`}
+      >
+        {value ? format(parseISO(value), 'EEE, MMM d') : 'Date'}
+      </button>
+      <input
+        ref={inputRef}
+        type="date"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
+      />
+    </span>
+  );
+}
+
 export default function TideChart({ predictions, analysis, isLoading, onShiftDays, year, month, day }: Props) {
   const chartRef = useRef<ChartJS<'line'>>(null);
+  const [dateInput, setDateInput] = useState('');
   const [timeInput, setTimeInput] = useState('');
   const [xRange, setXRange] = useState<{ min: number; max: number } | null>(null);
 
@@ -159,6 +210,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
   if (predictions !== predictionsForZoom) {
     setPredictionsForZoom(predictions);
     setXRange(null);
+    setDateInput('');
     setTimeInput('');
   }
 
@@ -241,11 +293,12 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
 
   // Reproduces exactly what mousing over a point on the line would show, and
   // re-centers the visible x-axis window on that point, preserving whatever
-  // zoom width is currently in effect. Runs directly in the input's onChange
-  // handler (not an effect) since it's driven by a discrete user action and
+  // zoom width is currently in effect. Runs directly in the inputs' onChange
+  // handlers (not an effect) since it's driven by a discrete user action and
   // needs the chart's pre-update scale bounds to compute the new center.
-  const handleTimeInputChange = useCallback((value: string) => {
-    setTimeInput(value);
+  const handleJumpChange = useCallback((nextDate: string, nextTime: string) => {
+    setDateInput(nextDate);
+    setTimeInput(nextTime);
 
     const chart = chartRef.current;
     if (!chart) return;
@@ -256,14 +309,33 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       chart.update();
     };
 
-    if (!value || !predictions || predictions.dataPoints.length === 0) {
+    if ((!nextDate && !nextTime) || !predictions || predictions.dataPoints.length === 0) {
       clearHover();
       return;
     }
 
-    const [hours, minutes] = value.split(':').map(Number);
-    if (Number.isNaN(hours) || Number.isNaN(minutes)) return;
-    const targetTs = new Date(year, month - 1, day, hours, minutes).getTime();
+    // Either picker works on its own: an unset date falls back to the start of
+    // the loaded range (which is what the time-only input has always jumped
+    // within), and an unset time falls back to midnight on the chosen date.
+    let targetYear = year;
+    let targetMonth = month;
+    let targetDay = day;
+    if (nextDate) {
+      const [y, m, d] = nextDate.split('-').map(Number);
+      if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return;
+      targetYear = y;
+      targetMonth = m;
+      targetDay = d;
+    }
+
+    let hours = 0;
+    let minutes = 0;
+    if (nextTime) {
+      [hours, minutes] = nextTime.split(':').map(Number);
+      if (Number.isNaN(hours) || Number.isNaN(minutes)) return;
+    }
+
+    const targetTs = new Date(targetYear, targetMonth - 1, targetDay, hours, minutes).getTime();
 
     const points = predictions.dataPoints;
     const first = parseISO(points[0].timestamp).getTime();
@@ -324,6 +396,14 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
   }
 
   if (!predictions || chartPoints.length === 0) return null;
+
+  // Scopes the jump-to-date picker to the loaded range, so its calendar can only
+  // reach days the chart actually holds data for.
+  const rangeStart = format(chartPoints[0].x, 'yyyy-MM-dd');
+  const rangeEnd = format(chartPoints[chartPoints.length - 1].x, 'yyyy-MM-dd');
+  const hasJump = Boolean(dateInput || timeInput);
+  const jumpFieldClass =
+    'px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-400';
 
   const data = {
     datasets: [
@@ -430,25 +510,6 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           })()}
         </div>
         <div className="hidden sm:flex flex-col items-end gap-1.5 shrink-0">
-          <div className="flex items-center gap-1.5">
-            <label htmlFor="jump-to-time" className="text-xs font-medium text-gray-400">Jump to time</label>
-            <input
-              id="jump-to-time"
-              type="time"
-              value={timeInput}
-              onChange={(e) => handleTimeInputChange(e.target.value)}
-              className="px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-400"
-            />
-            {timeInput && (
-              <button
-                onClick={() => handleTimeInputChange('')}
-                aria-label="Clear jump-to-time"
-                className="px-1.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
-              >
-                &times;
-              </button>
-            )}
-          </div>
           <button
             onClick={handleResetZoom}
             className="px-3 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
@@ -461,31 +522,38 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
             <button onClick={() => onShiftDays(7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">7d &rsaquo;</button>
             <button onClick={() => onShiftDays(30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">30d &raquo;</button>
           </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-gray-400">Jump to</span>
+            <JumpDateField
+              value={dateInput}
+              min={rangeStart}
+              max={rangeEnd}
+              onChange={(v) => handleJumpChange(v, timeInput)}
+              className={jumpFieldClass}
+            />
+            <input
+              type="time"
+              aria-label="Jump to time"
+              value={timeInput}
+              onChange={(e) => handleJumpChange(dateInput, e.target.value)}
+              className={jumpFieldClass}
+            />
+            {hasJump && (
+              <button
+                onClick={() => handleJumpChange('', '')}
+                aria-label="Clear jump-to"
+                className="px-1.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+              >
+                &times;
+              </button>
+            )}
+          </div>
         </div>
       </div>
       <div className="w-full h-[320px] touch-none">
         <Line ref={chartRef} data={data} options={options} />
       </div>
       <div className="flex sm:hidden items-center justify-center gap-1.5 mt-3">
-        <label htmlFor="jump-to-time-mobile" className="text-xs font-medium text-gray-400">Jump to time</label>
-        <input
-          id="jump-to-time-mobile"
-          type="time"
-          value={timeInput}
-          onChange={(e) => handleTimeInputChange(e.target.value)}
-          className="px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-400"
-        />
-        {timeInput && (
-          <button
-            onClick={() => handleTimeInputChange('')}
-            aria-label="Clear jump-to-time"
-            className="px-1.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
-          >
-            &times;
-          </button>
-        )}
-      </div>
-      <div className="flex sm:hidden items-center justify-center gap-1.5 mt-1.5">
         <button onClick={() => onShiftDays(-30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&laquo; 30d</button>
         <button onClick={() => onShiftDays(-7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&lsaquo; 7d</button>
         <button
@@ -496,6 +564,32 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         </button>
         <button onClick={() => onShiftDays(7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">7d &rsaquo;</button>
         <button onClick={() => onShiftDays(30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">30d &raquo;</button>
+      </div>
+      <div className="flex sm:hidden flex-wrap items-center justify-center gap-1.5 mt-1.5">
+        <span className="text-xs font-medium text-gray-400">Jump to</span>
+        <JumpDateField
+          value={dateInput}
+          min={rangeStart}
+          max={rangeEnd}
+          onChange={(v) => handleJumpChange(v, timeInput)}
+          className={jumpFieldClass}
+        />
+        <input
+          type="time"
+          aria-label="Jump to time"
+          value={timeInput}
+          onChange={(e) => handleJumpChange(dateInput, e.target.value)}
+          className={jumpFieldClass}
+        />
+        {hasJump && (
+          <button
+            onClick={() => handleJumpChange('', '')}
+            aria-label="Clear jump-to"
+            className="px-1.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+          >
+            &times;
+          </button>
+        )}
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-400">
         <div className="flex items-center gap-1.5">
