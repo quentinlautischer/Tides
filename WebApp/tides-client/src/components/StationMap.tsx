@@ -31,9 +31,10 @@ const locationIcon = new L.DivIcon({
 const DEFAULT_CENTER: [number, number] = [54.0, -100.0];
 const DEFAULT_ZOOM: number = 3;
 const STATION_ZOOM = 10;
-// Close enough to pick out individual stations, wide enough to show the ones up and
-// down the coast from wherever the user is.
-const NEARBY_ZOOM = 7;
+// Close enough to place the user in their own city, wide enough that the stations
+// around them are still on screen to pick from. Wider than this and the surroundings
+// stop being recognisable; tighter and there are too few stations in frame to choose.
+const NEARBY_ZOOM = 9;
 
 // Stations cluster tightly along the coasts, so dots stay small when zoomed out
 // to keep the shape of the coastline readable, and grow once they spread apart.
