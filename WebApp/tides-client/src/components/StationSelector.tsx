@@ -10,7 +10,11 @@ interface Props {
 }
 
 export default function StationSelector({ selectedStation, onSelect, showMap, onToggleMap }: Props) {
-  const [query, setQuery] = useState(selectedStation?.officialName ?? '');
+  // Only what the user has typed since they last picked a station. While it's null
+  // the box shows the current selection, which may have been made here or by
+  // clicking a dot on the map.
+  const [draft, setDraft] = useState<string | null>(null);
+  const query = draft ?? selectedStation?.officialName ?? '';
   const [isOpen, setIsOpen] = useState(false);
   const { data: stations, isLoading } = useStations(query);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -33,7 +37,7 @@ export default function StationSelector({ selectedStation, onSelect, showMap, on
         placeholder="Search stations (e.g. Vancouver, Victoria)..."
         value={query}
         onChange={(e) => {
-          setQuery(e.target.value);
+          setDraft(e.target.value);
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
@@ -65,7 +69,7 @@ export default function StationSelector({ selectedStation, onSelect, showMap, on
               key={s.id}
               onClick={() => {
                 onSelect(s);
-                setQuery(s.officialName);
+                setDraft(null);
                 setIsOpen(false);
               }}
               className="px-4 py-2.5 cursor-pointer hover:bg-gray-700 text-gray-100 text-sm border-b border-gray-700 last:border-b-0"

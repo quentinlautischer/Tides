@@ -74,8 +74,8 @@ function App() {
           />
         </div>
         {showMap && (
-          <div className="order-2 sm:order-none">
-            <StationMap station={selectedStation} />
+          <div className="order-2 sm:order-none sm:col-span-2">
+            <StationMap station={selectedStation} onSelect={handleSelectStation} />
           </div>
         )}
         <div className="order-4 sm:order-none">

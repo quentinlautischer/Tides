@@ -8,6 +8,12 @@ export async function searchStations(query: string): Promise<Station[]> {
   return res.json();
 }
 
+export async function getAllStations(): Promise<Station[]> {
+  const res = await fetch(`${BASE}/stations/all`);
+  if (!res.ok) throw new Error('Failed to fetch stations');
+  return res.json();
+}
+
 export async function getTidePredictions(
   code: string,
   from: string,

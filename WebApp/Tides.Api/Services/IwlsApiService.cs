@@ -28,12 +28,32 @@ public class IwlsApiService : IIwlsApiService
 
     public async Task<List<Station>> SearchStationsAsync(string query)
     {
-        var cacheKey = $"stations_all";
-        if (!_cache.TryGetValue(cacheKey, out List<Station>? allStations))
-        {
-            var response = await RateLimitedGetAsync("stations");
-            var rawStations = await response.Content.ReadFromJsonAsync<List<IwlsStation>>(JsonOptions);
-            allStations = rawStations?.Select(s => new Station
+        var allStations = await GetAllStationsAsync();
+
+        if (string.IsNullOrWhiteSpace(query))
+            return allStations.Take(20).ToList();
+
+        return allStations
+            .Where(s => s.OfficialName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                     || s.Code.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Take(20)
+            .ToList();
+    }
+
+    public async Task<List<Station>> GetAllStationsAsync()
+    {
+        var cacheKey = "stations_all";
+        if (_cache.TryGetValue(cacheKey, out List<Station>? allStations))
+            return allStations!;
+
+        var response = await RateLimitedGetAsync("stations");
+        var rawStations = await response.Content.ReadFromJsonAsync<List<IwlsStation>>(JsonOptions);
+        allStations = rawStations?
+            // Roughly a third of IWLS stations carry no water level prediction series at
+            // all, and asking for predictions there 404s. Drop them so every station we
+            // surface - in search results and as a dot on the map - is actually usable.
+            .Where(s => s.TimeSeries?.Any(t => t.Code == "wlp") == true)
+            .Select(s => new Station
             {
                 Id = s.Id,
                 Code = s.Code,
@@ -44,17 +64,8 @@ public class IwlsApiService : IIwlsApiService
                 TimeZone = s.TimeZone ?? "America/Vancouver"
             }).ToList() ?? [];
 
-            _cache.Set(cacheKey, allStations, TimeSpan.FromHours(24));
-        }
-
-        if (string.IsNullOrWhiteSpace(query))
-            return allStations!.Take(20).ToList();
-
-        return allStations!
-            .Where(s => s.OfficialName.Contains(query, StringComparison.OrdinalIgnoreCase)
-                     || s.Code.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .Take(20)
-            .ToList();
+        _cache.Set(cacheKey, allStations, TimeSpan.FromHours(24));
+        return allStations;
     }
 
     public async Task<Station?> GetStationByCodeAsync(string code)
@@ -190,6 +201,12 @@ public class IwlsApiService : IIwlsApiService
         public bool Operating { get; set; }
         [JsonPropertyName("timezone")]
         public string? TimeZone { get; set; }
+        public List<IwlsTimeSeries>? TimeSeries { get; set; }
+    }
+
+    private class IwlsTimeSeries
+    {
+        public string Code { get; set; } = string.Empty;
     }
 
     private class IwlsDataPoint
