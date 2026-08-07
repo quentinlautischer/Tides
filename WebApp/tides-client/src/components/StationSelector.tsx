@@ -43,10 +43,19 @@ export default function StationSelector({ selectedStation, onSelect, showMap, on
         onFocus={() => setIsOpen(true)}
         className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
       />
-      {selectedStation && !isOpen && (
+      {/* The map toggle stays available with nothing selected: picking a station off the
+          map is a first-class alternative to searching, and it's the only way a new
+          visitor sees where they are relative to the stations. */}
+      {!isOpen && (
         <div className="mt-1 flex items-center justify-between text-sm text-gray-500">
           <span>
-            Selected: <span className="font-medium text-gray-300">{selectedStation.officialName}</span> ({selectedStation.code})
+            {selectedStation ? (
+              <>
+                Selected: <span className="font-medium text-gray-300">{selectedStation.officialName}</span> ({selectedStation.code})
+              </>
+            ) : (
+              'No station selected'
+            )}
           </span>
           <button
             onClick={onToggleMap}

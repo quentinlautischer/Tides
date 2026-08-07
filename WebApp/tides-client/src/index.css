@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+/*
+  The "you are here" dot on the station map. Drawn as a marker rather than a Leaflet
+  path so it lands in the marker pane, which always stacks above the canvas the station
+  dots are rendered on - otherwise whichever of the two resolves last wins, and the
+  station list usually beats the geolocation callback.
+*/
+.tide-location-marker {
+  background-color: #22c55e;
+  border: 2px solid #ffffff;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35);
+}

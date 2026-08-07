@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, CircleMarker, Tooltip, useMap, 
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAllStations } from '../hooks/useStations';
+import { useCurrentLocation, type CurrentLocation } from '../hooks/useCurrentLocation';
 import type { Station } from '../types';
 
 const redIcon = new L.Icon({
@@ -15,10 +16,24 @@ const redIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
+// A marker rather than a circle path: paths share one canvas with the station dots and
+// are drawn in the order they mount, so the location would end up buried under the dots
+// whenever the station list resolved last. Markers get their own pane, always on top.
+// Sizing lives in .tide-location-marker in index.css.
+const locationIcon = new L.DivIcon({
+  className: 'tide-location-marker',
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+  tooltipAnchor: [0, -9],
+});
+
 // Frames the whole covered area: Canada plus the US west coast.
 const DEFAULT_CENTER: [number, number] = [54.0, -100.0];
 const DEFAULT_ZOOM: number = 3;
 const STATION_ZOOM = 10;
+// Close enough to pick out individual stations, wide enough to show the ones up and
+// down the coast from wherever the user is.
+const NEARBY_ZOOM = 7;
 
 // Stations cluster tightly along the coasts, so dots stay small when zoomed out
 // to keep the shape of the coastline readable, and grow once they spread apart.
@@ -29,7 +44,15 @@ function dotRadius(zoom: number): number {
   return 6;
 }
 
-function FlyToStation({ station, skipRef }: { station: Station | null; skipRef: React.RefObject<boolean> }) {
+function FlyToStation({
+  station,
+  location,
+  skipRef,
+}: {
+  station: Station | null;
+  location: CurrentLocation;
+  skipRef: React.RefObject<boolean>;
+}) {
   const map = useMap();
   useEffect(() => {
     // A station picked by clicking its dot is already on screen - flying to it
@@ -40,10 +63,16 @@ function FlyToStation({ station, skipRef }: { station: Station | null; skipRef: 
     }
     if (station) {
       map.flyTo([station.latitude, station.longitude], STATION_ZOOM, { duration: 1.5 });
+    } else if (location.status === 'ready') {
+      // Nothing picked yet, so open on the user's own stretch of coast rather than the
+      // whole continent. This is also what puts the location marker on screen - with a
+      // station selected the map goes there instead, and the marker can be well outside
+      // the frame until the user zooms out.
+      map.flyTo([location.latitude, location.longitude], NEARBY_ZOOM, { duration: 1.5 });
     } else {
       map.flyTo(DEFAULT_CENTER, DEFAULT_ZOOM, { duration: 1.5 });
     }
-  }, [map, station, skipRef]);
+  }, [map, station, location, skipRef]);
   return null;
 }
 
@@ -95,6 +124,18 @@ function StationDots({
   );
 }
 
+// Only says something when there's a reason the green marker isn't there; a successful
+// fix speaks for itself.
+function locationNote(location: CurrentLocation): string | null {
+  switch (location.status) {
+    case 'locating': return 'finding you...';
+    case 'denied': return 'location blocked';
+    case 'unsupported': return 'location unavailable';
+    case 'error': return 'location unavailable';
+    default: return null;
+  }
+}
+
 interface Props {
   station: Station | null;
   onSelect: (station: Station) => void;
@@ -102,6 +143,9 @@ interface Props {
 
 export default function StationMap({ station, onSelect }: Props) {
   const { data: stations, isLoading, isError } = useAllStations(true);
+  // The map is only mounted once the user has asked for it, so the permission prompt
+  // follows a deliberate action rather than appearing out of nowhere on page load.
+  const location = useCurrentLocation(true);
   const skipFlyToRef = useRef(false);
 
   function handleDotClick(picked: Station) {
@@ -131,7 +175,7 @@ export default function StationMap({ station, onSelect }: Props) {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <FlyToStation station={station} skipRef={skipFlyToRef} />
+          <FlyToStation station={station} location={location} skipRef={skipFlyToRef} />
           {stations && (
             <StationDots stations={stations} selectedCode={station?.code} onSelect={handleDotClick} />
           )}
@@ -144,12 +188,20 @@ export default function StationMap({ station, onSelect }: Props) {
               </Popup>
             </Marker>
           )}
+          {location.status === 'ready' && (
+            <Marker position={[location.latitude, location.longitude]} icon={locationIcon}>
+              <Tooltip direction="top">You are here</Tooltip>
+            </Marker>
+          )}
         </MapContainer>
       </div>
-      <div className="absolute bottom-0 left-0 z-[500] px-2 py-1 text-xs text-gray-300 bg-gray-900/80 rounded-tr-md pointer-events-none">
+      {/* Top-left because the bottom of the map belongs to Leaflet's attribution, which
+          this used to run into on narrow screens. */}
+      <div className="absolute top-0 left-0 z-[500] px-2 py-1 text-xs text-gray-300 bg-gray-900/80 rounded-br-md pointer-events-none">
         {isLoading && 'Loading stations...'}
         {isError && 'Could not load station list'}
         {stations && `${stations.length} stations - click a dot to select`}
+        {stations && locationNote(location) && ` - ${locationNote(location)}`}
       </div>
     </div>
   );

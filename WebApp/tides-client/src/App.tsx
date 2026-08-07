@@ -110,7 +110,7 @@ function App() {
       {!selectedStation && (
         <div className="text-center py-16 text-gray-500">
           <div className="text-5xl mb-4">🌊</div>
-          <p className="text-lg">Search for a station to see tide predictions</p>
+          <p className="text-lg">Search for a station, or show the map and pick one near you</p>
         </div>
       )}
     </Layout>
