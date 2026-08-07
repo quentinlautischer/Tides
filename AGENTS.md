@@ -96,7 +96,11 @@ There is no CI/CD pipeline, publish profile, or infrastructure-as-code checked i
 - Resource group: `Tides`
 - Region: Canada Central
 - App Service Plan: `TidesPlan`, SKU `F1` (free tier)
-- URL: http://tides-app-ql.azurewebsites.net
+- URL: https://tides-app-ql.azurewebsites.net
+
+The site is `httpsOnly`, so plain HTTP gets a 301 to HTTPS (set 2026-08-07 via `az webapp update --resource-group Tides --name tides-app-ql --https-only true`).
+Don't turn this off: the map's "show me where I am" features call the browser geolocation API, which only resolves in a secure context.
+Served over plain HTTP they fail silently, leaving no location marker and a permanently disabled recentre button.
 
 **Steps** (run from `WebApp/Tides.Api/`, after `az login` and `az account set --subscription 43c949f7-2115-4366-8461-9639f9101f0b`):
 
