@@ -136,6 +136,48 @@ function locationNote(location: CurrentLocation): string | null {
   }
 }
 
+// Why the recentre button can't be used, or null when it can.
+function locationBlockedReason(location: CurrentLocation): string | null {
+  switch (location.status) {
+    case 'locating': return 'Finding your location...';
+    case 'denied': return 'Location access is blocked in your browser';
+    case 'error': return 'Your location could not be determined';
+    default: return null;
+  }
+}
+
+function RecentreButton({ location, onRecentre }: { location: CurrentLocation; onRecentre: () => void }) {
+  // Nothing to offer if the browser has no geolocation at all, so don't take up the
+  // corner with a button that can never work.
+  if (location.status === 'unsupported') return null;
+
+  const blocked = locationBlockedReason(location);
+
+  return (
+    <button
+      type="button"
+      onClick={onRecentre}
+      disabled={blocked !== null}
+      title={blocked ?? 'Centre the map on your location'}
+      aria-label={blocked ?? 'Centre the map on your location'}
+      className="absolute top-2 right-2 z-[800] flex h-10 w-10 items-center justify-center rounded-full border border-gray-700 bg-gray-900/85 text-gray-200 shadow-lg transition-colors hover:bg-gray-800 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-gray-900/85 disabled:hover:text-gray-200"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        className="h-5 w-5"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="3.25" />
+        <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+      </svg>
+    </button>
+  );
+}
+
 interface Props {
   station: Station | null;
   onSelect: (station: Station) => void;
@@ -147,6 +189,14 @@ export default function StationMap({ station, onSelect }: Props) {
   // follows a deliberate action rather than appearing out of nowhere on page load.
   const location = useCurrentLocation(true);
   const skipFlyToRef = useRef(false);
+  // Held in state rather than a ref so the recentre button re-renders once the map
+  // exists and has something to act on.
+  const [map, setMap] = useState<L.Map | null>(null);
+
+  function handleRecentre() {
+    if (!map || location.status !== 'ready') return;
+    map.flyTo([location.latitude, location.longitude], NEARBY_ZOOM, { duration: 1.5 });
+  }
 
   function handleDotClick(picked: Station) {
     skipFlyToRef.current = true;
@@ -161,6 +211,7 @@ export default function StationMap({ station, onSelect }: Props) {
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden h-full relative">
       <div className="h-[280px] sm:h-[320px]">
         <MapContainer
+          ref={setMap}
           center={station ? [station.latitude, station.longitude] : DEFAULT_CENTER}
           zoom={station ? STATION_ZOOM : DEFAULT_ZOOM}
           // Below this the stations collapse into an unreadable blob and most of
@@ -195,6 +246,8 @@ export default function StationMap({ station, onSelect }: Props) {
           )}
         </MapContainer>
       </div>
+      {/* Sits outside MapContainer so its clicks never reach the map underneath. */}
+      <RecentreButton location={location} onRecentre={handleRecentre} />
       {/* Top-left because the bottom of the map belongs to Leaflet's attribution, which
           this used to run into on narrow screens. */}
       <div className="absolute top-0 left-0 z-[500] px-2 py-1 text-xs text-gray-300 bg-gray-900/80 rounded-br-md pointer-events-none">
