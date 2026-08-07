@@ -7,6 +7,8 @@ export interface Station {
   operating: boolean;
   timeZone: string;
   source: 'Iwls' | 'Noaa';
+  /** Country the station is in. May be absent on a station cached before it existed. */
+  country?: string;
   /** Vertical datum heights are measured from - differs between Canada and the US. */
   datum: string;
 }

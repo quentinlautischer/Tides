@@ -55,6 +55,7 @@ public class IwlsApiService : ITideDataSource
                 TimeZone = s.TimeZone ?? "America/Vancouver",
                 Source = StationSource.Iwls,
                 Datum = PredictionDatum,
+                Country = "Canada",
             }).ToList() ?? [];
 
         _cache.Set(cacheKey, allStations, TimeSpan.FromHours(24));

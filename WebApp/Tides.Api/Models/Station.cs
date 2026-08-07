@@ -16,6 +16,13 @@ public class Station
     public StationSource Source { get; set; }
 
     /// <summary>
+    /// Country the station sits in, for display. Stations on both coasts share names
+    /// freely (there is a Vancouver in each country), so the name alone doesn't say
+    /// where a station actually is.
+    /// </summary>
+    public string Country { get; set; } = string.Empty;
+
+    /// <summary>
     /// The vertical datum heights are measured from. Canada and the US use different
     /// ones, so a "below 0.5m" threshold does not mean the same thing on both sides of
     /// the border - the UI shows this so the numbers can be read correctly.

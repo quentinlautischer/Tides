@@ -61,7 +61,7 @@ function App() {
 
   return (
     <Layout>
-      <CurrentTideTile current={current.data} isLoading={current.isLoading} />
+      <CurrentTideTile current={current.data} station={selectedStation} isLoading={current.isLoading} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <StationSelector selectedStation={selectedStation} onSelect={handleSelectStation} showMap={showMap} onToggleMap={() => setShowMap((v) => !v)} />

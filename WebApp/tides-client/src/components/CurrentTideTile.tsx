@@ -1,8 +1,10 @@
 import { format, parseISO } from 'date-fns';
-import type { CurrentTideLevel } from '../types';
+import { stationLabel } from '../lib/station';
+import type { CurrentTideLevel, Station } from '../types';
 
 interface Props {
   current: CurrentTideLevel | undefined;
+  station: Station | null;
   isLoading: boolean;
 }
 
@@ -32,7 +34,7 @@ function TrendArrow({ trend }: { trend: CurrentTideLevel['trend'] }) {
   );
 }
 
-export default function CurrentTideTile({ current, isLoading }: Props) {
+export default function CurrentTideTile({ current, station, isLoading }: Props) {
   if (isLoading && !current) {
     return (
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 animate-pulse">
@@ -51,7 +53,14 @@ export default function CurrentTideTile({ current, isLoading }: Props) {
   return (
     <div className="bg-gradient-to-br from-teal-600 to-cyan-800 text-white rounded-xl p-6 shadow-lg shadow-cyan-900/30">
       <div className="flex items-center gap-2 mb-1">
-        <h2 className="text-sm font-medium text-cyan-200 uppercase tracking-wide">Current tide level</h2>
+        <h2 className="text-sm font-medium text-cyan-200 uppercase tracking-wide">
+          Current tide level
+          {station && (
+            // Station names carry their own capitalisation and punctuation, so they're
+            // left in their normal case rather than swept up by the heading's uppercase.
+            <span className="normal-case"> - {stationLabel(station)}</span>
+          )}
+        </h2>
         {current.source === 'Observed' && (
           <span className="relative flex h-2 w-2" title="Live gauge reading">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-300 opacity-75"></span>

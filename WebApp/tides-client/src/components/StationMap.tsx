@@ -4,6 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAllStations } from '../hooks/useStations';
 import { useCurrentLocation, type CurrentLocation } from '../hooks/useCurrentLocation';
+import { stationLabel } from '../lib/station';
 import type { Station } from '../types';
 
 const redIcon = new L.Icon({
@@ -115,7 +116,7 @@ function StationDots({
             eventHandlers={{ click: () => onSelect(s) }}
           >
             <Tooltip direction="top" offset={[0, -radius]}>
-              <span className="font-medium">{s.officialName}</span>
+              <span className="font-medium">{stationLabel(s)}</span>
               <span className="text-gray-500"> ({s.code})</span>
             </Tooltip>
           </CircleMarker>
@@ -234,7 +235,7 @@ export default function StationMap({ station, onSelect }: Props) {
           {station && (
             <Marker position={[station.latitude, station.longitude]} icon={redIcon}>
               <Popup>
-                <span className="font-medium">{station.officialName}</span>
+                <span className="font-medium">{stationLabel(station)}</span>
                 <br />
                 <span className="text-gray-500">Code: {station.code}</span>
               </Popup>

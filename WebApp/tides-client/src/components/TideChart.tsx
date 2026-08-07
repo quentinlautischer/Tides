@@ -16,6 +16,7 @@ import 'chartjs-adapter-date-fns';
 import { Line } from 'react-chartjs-2';
 import { parseISO, format } from 'date-fns';
 import type { ChartOptions, ChartEvent, InteractionModeFunction, Plugin } from 'chart.js';
+import { stationLabel } from '../lib/station';
 import type { TidePredictionResponse, LowestTideAnalysis } from '../types';
 
 declare module 'chart.js' {
@@ -516,7 +517,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       <div className="flex items-start justify-between mb-4">
         <div>
           <h2 className="text-lg font-semibold text-gray-100">
-            Tide Levels &mdash; {predictions.station.officialName}
+            Tide Levels &mdash; {stationLabel(predictions.station)}
           </h2>
           {analysis && (() => {
             const ts = parseISO(analysis.lowestTide.timestamp);

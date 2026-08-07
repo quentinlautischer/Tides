@@ -72,6 +72,7 @@ public class NoaaApiService : ITideDataSource
                 TimeZone = CoveredStates[s.State!],
                 Source = StationSource.Noaa,
                 Datum = PredictionDatum,
+                Country = "USA",
             })
             .ToList() ?? [];
 
