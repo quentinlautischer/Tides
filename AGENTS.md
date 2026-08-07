@@ -2,9 +2,14 @@
 
 ## What this project is
 
-Tides is a personal tool for tracking Canadian tide predictions.
+Tides is a personal tool for tracking tide predictions, originally Canada only and since extended to the US west coast.
 The working UI name is "Captain Crunch's Tide Tracker" (see commit `aa02bbe`).
 The core idea, present since the very first commit, is finding low-tide windows at a given station, e.g. "the next N times the tide drops below X meters."
+
+Because that core idea is about an absolute threshold, the **vertical datum matters and differs by country**.
+IWLS publishes heights above Chart Datum; NOAA publishes heights above MLLW.
+The two zeros are not the same, so a "below 0.5m" threshold does not carry across the border, and US stations routinely show negative values where Canadian ones rarely do.
+`Station.Datum` carries the label per station and the chart's y-axis title states it. Do not compare or blend heights across sources without accounting for this.
 
 The repo contains two separate implementations of that idea, not one project superseding the other in place:
 
@@ -14,7 +19,8 @@ It has not been touched since the web app was added in `00c3a24`, so treat it as
 
 The two do not share code, data source, or data format.
 `ConsoleCLI` reads a static bulk-exported CSV for a single hardcoded station (Vancouver, 7735).
-`WebApp` calls the live Fisheries and Oceans Canada IWLS (Integrated Water Level System) API and supports searching any station.
+`WebApp` calls two live upstream APIs and supports searching any station they cover:
+Fisheries and Oceans Canada IWLS (Integrated Water Level System) for Canada, and NOAA CO-OPS for the US west coast (WA, OR, CA).
 
 ## Stack and layout
 
@@ -25,9 +31,15 @@ There is no CLI argument parsing; parameters are set by editing the `FindTide(..
 
 **`WebApp/Tides.Api/`**
 ASP.NET Core 9 minimal-hosting API (`Program.cs`), single project, no separate class library.
-- `Controllers/StationsController.cs` - station search (`GET /api/stations?search=`).
+- `Controllers/StationsController.cs` - station search (`GET /api/stations?search=`) and the full station list the map plots (`GET /api/stations/all`).
 - `Controllers/TidePredictionsController.cs` - predictions (`GET /api/tides/{code}`) and derived low-tide analysis (`GET /api/tides/{code}/analysis`).
-- `Services/IwlsApiService.cs` - proxies and caches (`IMemoryCache`, 24h for station data, 6h for tide predictions) calls to the external IWLS API. Self-throttles to roughly one request per 350ms via a static `SemaphoreSlim`, since it's a shared upstream rate limit. Chunks date ranges into 30-day windows because the upstream API caps request span.
+- `Services/ITideDataSource.cs` - the contract each upstream authority implements: its full station list, predictions, and observed water level. Sources own disjoint sets of stations.
+- `Services/IwlsApiService.cs` - the Canadian source. Proxies and caches (`IMemoryCache`, 24h for station data, 6h for tide predictions) calls to the external IWLS API. Self-throttles to roughly one request per 350ms via a static `SemaphoreSlim`, since it's a shared upstream rate limit. Chunks date ranges into 30-day windows because the upstream API caps request span.
+Filters the station list to those carrying a `wlp` (water level prediction) time series, since roughly a third of IWLS stations have none and 404 when asked for predictions.
+- `Services/NoaaApiService.cs` - the US west coast source (NOAA CO-OPS), same caching windows. No key or auth, and no chunking needed since NOAA serves a full year of 15-minute predictions per request.
+Filters to reference stations (`type == "R"`) in WA/OR/CA; subordinate stations only publish high/low offsets and error on an interval request. That is 150 of the 402 stations in those states.
+NOAA reports "no data at this station" as HTTP 200 with an `error` body rather than a status code, so that is checked explicitly.
+- `Services/TideStationDirectory.cs` - the single entry point controllers use. Merges the sources' station lists, ranks search results before truncating to 20 (otherwise one country crowds out the other), and routes each data request back to the source that owns the station via `Station.Source`.
 - `Services/TideAnalysisService.cs` - computes the overall lowest tide and per-day lowest tides for a range, bucketed into Morning/Afternoon/Evening/Night by local hour (station-specific timezone, not server timezone).
 - The API also serves the built SPA as static files (`UseStaticFiles` + `MapFallbackToFile`), so the intent is a single deployable unit (see commit `757f7de`, "Add static file serving and deploy to Azure App Service"). There is no deployment workflow or publish profile checked into the repo, so the actual deploy mechanics live outside it.
 
@@ -50,7 +62,7 @@ dotnet run
 ```
 Listens on `http://localhost:5062` (from `Properties/launchSettings.json`).
 Runs with `ASPNETCORE_ENVIRONMENT=Development`, which is what turns on CORS for `http://localhost:5173` via `appsettings.Development.json`; without that setting `AllowedOrigins` is empty and CORS middleware is skipped entirely (see `Program.cs`).
-No local secrets or connection string are needed, since the only external dependency is the public IWLS API.
+No local secrets or connection string are needed, since the only external dependencies are the public IWLS and NOAA CO-OPS APIs, neither of which needs a key.
 
 **Client** (`WebApp/tides-client/`)
 ```
@@ -114,4 +126,4 @@ What exists today as a proxy for correctness:
 - `Tides.Api`: `dotnet build` from `WebApp/` only confirms it compiles; nothing exercises the controllers or services.
 - `ConsoleCLI/Tides.py`: no automated check at all. Verification is running the script and reading its stdout.
 
-If asked to change behavior in `TideAnalysisService` (timezone/day-bucketing math) or `IwlsApiService` (rate limiting, chunking, caching), be aware there is no regression safety net today; manual verification against the running app is the only option unless tests are added first.
+If asked to change behavior in `TideAnalysisService` (timezone/day-bucketing math), `IwlsApiService` / `NoaaApiService` (rate limiting, chunking, caching, station filtering), or `TideStationDirectory` (search ranking, source routing), be aware there is no regression safety net today; manual verification against the running app is the only option unless tests are added first.

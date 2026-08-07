@@ -6,6 +6,9 @@ export interface Station {
   longitude: number;
   operating: boolean;
   timeZone: string;
+  source: 'Iwls' | 'Noaa';
+  /** Vertical datum heights are measured from - differs between Canada and the US. */
+  datum: string;
 }
 
 export interface TideDataPoint {

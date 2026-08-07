@@ -11,7 +11,16 @@ builder.Services.AddHttpClient("IWLS", client =>
     client.DefaultRequestHeaders.Add("Accept", "application/json");
 });
 
-builder.Services.AddSingleton<IIwlsApiService, IwlsApiService>();
+builder.Services.AddHttpClient("NOAA", client =>
+{
+    client.BaseAddress = new Uri("https://api.tidesandcurrents.noaa.gov/");
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+});
+
+// Registration order sets the order stations appear in the merged list.
+builder.Services.AddSingleton<ITideDataSource, IwlsApiService>();
+builder.Services.AddSingleton<ITideDataSource, NoaaApiService>();
+builder.Services.AddSingleton<ITideStationDirectory, TideStationDirectory>();
 builder.Services.AddSingleton<ITideAnalysisService, TideAnalysisService>();
 
 var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? [];

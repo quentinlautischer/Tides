@@ -7,17 +7,17 @@ namespace Tides.Api.Controllers;
 [Route("api/[controller]")]
 public class StationsController : ControllerBase
 {
-    private readonly IIwlsApiService _iwlsService;
+    private readonly ITideStationDirectory _stations;
 
-    public StationsController(IIwlsApiService iwlsService)
+    public StationsController(ITideStationDirectory stations)
     {
-        _iwlsService = iwlsService;
+        _stations = stations;
     }
 
     [HttpGet]
     public async Task<IActionResult> Search([FromQuery] string? search)
     {
-        var stations = await _iwlsService.SearchStationsAsync(search ?? "");
+        var stations = await _stations.SearchStationsAsync(search ?? "");
         return Ok(stations);
     }
 
@@ -26,7 +26,7 @@ public class StationsController : ControllerBase
     [HttpGet("all")]
     public async Task<IActionResult> All()
     {
-        var stations = await _iwlsService.GetAllStationsAsync();
+        var stations = await _stations.GetAllStationsAsync();
         return Ok(stations);
     }
 }

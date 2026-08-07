@@ -441,6 +441,8 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     ],
   };
 
+  const datum = predictions?.station.datum;
+
   const options: ChartOptions<'line'> = {
     responsive: true,
     maintainAspectRatio: false,
@@ -463,7 +465,9 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       y: {
         title: {
           display: true,
-          text: 'Water Level (m)',
+          // Canada and the US publish against different datums, so the bare number
+          // is ambiguous without saying what zero means here.
+          text: datum ? `Water Level (m above ${datum})` : 'Water Level (m)',
           color: '#9ca3af',
           font: { size: 12 },
         },

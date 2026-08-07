@@ -15,7 +15,8 @@ const redIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
-const CANADA_CENTER: [number, number] = [56.1, -96.0];
+// Frames the whole covered area: Canada plus the US west coast.
+const DEFAULT_CENTER: [number, number] = [54.0, -100.0];
 const DEFAULT_ZOOM: number = 3;
 const STATION_ZOOM = 10;
 
@@ -40,7 +41,7 @@ function FlyToStation({ station, skipRef }: { station: Station | null; skipRef: 
     if (station) {
       map.flyTo([station.latitude, station.longitude], STATION_ZOOM, { duration: 1.5 });
     } else {
-      map.flyTo(CANADA_CENTER, DEFAULT_ZOOM, { duration: 1.5 });
+      map.flyTo(DEFAULT_CENTER, DEFAULT_ZOOM, { duration: 1.5 });
     }
   }, [map, station, skipRef]);
   return null;
@@ -116,7 +117,7 @@ export default function StationMap({ station, onSelect }: Props) {
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden h-full relative">
       <div className="h-[280px] sm:h-[320px]">
         <MapContainer
-          center={station ? [station.latitude, station.longitude] : CANADA_CENTER}
+          center={station ? [station.latitude, station.longitude] : DEFAULT_CENTER}
           zoom={station ? STATION_ZOOM : DEFAULT_ZOOM}
           // Below this the stations collapse into an unreadable blob and most of
           // the frame is empty ocean, so there's nothing to gain by zooming out.

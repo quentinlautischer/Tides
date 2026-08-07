@@ -6,8 +6,11 @@ using Tides.Api.Models;
 
 namespace Tides.Api.Services;
 
-public class IwlsApiService : IIwlsApiService
+public class IwlsApiService : ITideDataSource
 {
+    // IWLS predictions are published relative to Chart Datum.
+    private const string PredictionDatum = "Chart Datum";
+
     private readonly HttpClient _httpClient;
     private readonly IMemoryCache _cache;
     private readonly ILogger<IwlsApiService> _logger;
@@ -26,19 +29,7 @@ public class IwlsApiService : IIwlsApiService
         _logger = logger;
     }
 
-    public async Task<List<Station>> SearchStationsAsync(string query)
-    {
-        var allStations = await GetAllStationsAsync();
-
-        if (string.IsNullOrWhiteSpace(query))
-            return allStations.Take(20).ToList();
-
-        return allStations
-            .Where(s => s.OfficialName.Contains(query, StringComparison.OrdinalIgnoreCase)
-                     || s.Code.Contains(query, StringComparison.OrdinalIgnoreCase))
-            .Take(20)
-            .ToList();
-    }
+    public StationSource Source => StationSource.Iwls;
 
     public async Task<List<Station>> GetAllStationsAsync()
     {
@@ -61,37 +52,13 @@ public class IwlsApiService : IIwlsApiService
                 Latitude = s.Latitude,
                 Longitude = s.Longitude,
                 Operating = s.Operating,
-                TimeZone = s.TimeZone ?? "America/Vancouver"
+                TimeZone = s.TimeZone ?? "America/Vancouver",
+                Source = StationSource.Iwls,
+                Datum = PredictionDatum,
             }).ToList() ?? [];
 
         _cache.Set(cacheKey, allStations, TimeSpan.FromHours(24));
         return allStations;
-    }
-
-    public async Task<Station?> GetStationByCodeAsync(string code)
-    {
-        var cacheKey = $"station_{code}";
-        if (_cache.TryGetValue(cacheKey, out Station? station))
-            return station;
-
-        var response = await RateLimitedGetAsync($"stations?code={code}");
-        var stations = await response.Content.ReadFromJsonAsync<List<IwlsStation>>(JsonOptions);
-        var raw = stations?.FirstOrDefault();
-        if (raw == null) return null;
-
-        station = new Station
-        {
-            Id = raw.Id,
-            Code = raw.Code,
-            OfficialName = raw.OfficialName,
-            Latitude = raw.Latitude,
-            Longitude = raw.Longitude,
-            Operating = raw.Operating,
-            TimeZone = raw.TimeZone ?? "America/Vancouver"
-        };
-
-        _cache.Set(cacheKey, station, TimeSpan.FromHours(24));
-        return station;
     }
 
     public async Task<List<TideDataPoint>> GetTidePredictionsAsync(string stationId, DateTime from, DateTime to)
