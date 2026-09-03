@@ -78,9 +78,18 @@ function mergeExtrema(existing: TideExtremum[], newExtrema: TideExtremum[]): Tid
   return Array.from(map.values()).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
-/** Slice cached points to the requested [from, to] range (inclusive by date prefix). */
+/**
+ * Slice cached points to the half-open range [from, to) - `to` is the day after the last one
+ * requested, so a 3-day range covers three days.
+ *
+ * This deliberately matches the window the API resolves for the same dates. Slicing through the
+ * end of `to` instead, as this once did, made the chart a day wider than the analysis endpoint,
+ * so a low could be drawn on the chart that the "Lowest" summary had never considered - and,
+ * because the cache accumulates across ranges, the extra day came from whatever wider fetch
+ * happened to have run earlier.
+ */
 function slicePoints<T extends { timestamp: string }>(points: T[], from: string, to: string): T[] {
-  return points.filter((p) => p.timestamp >= from && p.timestamp < to + 'T\uffff');
+  return points.filter((p) => p.timestamp >= from && p.timestamp < to);
 }
 
 /**

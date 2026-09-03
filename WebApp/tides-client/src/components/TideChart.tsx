@@ -459,9 +459,15 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     return predictions.dataPoints.map((_, i) => (i === currentIdx ? '#67e8f9' : 'transparent'));
   }, [predictions, currentIdx]);
 
+  // The overall lowest is the answer the app exists to give, so its marker is always drawn -
+  // the same standing as the current-tide marker, and independent of the Labels switch. The
+  // rest of the turning points are the detail that switch controls.
   const extremaRadii = useMemo(
-    () => extremaPoints.map((_, i) => (i === lowestExtremaIdx ? 6 : 3.5)),
-    [extremaPoints, lowestExtremaIdx],
+    () => extremaPoints.map((_, i) => {
+      if (i === lowestExtremaIdx) return 6;
+      return showLabels ? 3.5 : 0;
+    }),
+    [extremaPoints, lowestExtremaIdx, showLabels],
   );
 
   const extremaColors = useMemo(
@@ -661,10 +667,10 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         // gives the markers their own hit-testable elements for the hover snap and the tooltip.
         data: extremaPoints,
         showLine: false,
-        // Hidden by radius rather than by `hidden`, because the snap still anchors its tooltip
-        // to these points when the labels are switched off - a hidden dataset draws nothing at
-        // all, including the point the tooltip is pointing at.
-        pointRadius: showLabels ? extremaRadii : 0,
+        // Visibility is per-point radius rather than `hidden` on the dataset: a hidden dataset
+        // draws nothing at all, which would take the always-on lowest marker with it and leave
+        // the snap anchoring tooltips to a point that isn't rendered.
+        pointRadius: extremaRadii,
         pointBackgroundColor: extremaColors,
         pointBorderColor: '#1f2937',
         pointBorderWidth: 1.5,
@@ -913,12 +919,10 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           <span className="inline-block w-3 h-3 bg-cyan-300 rounded-full"></span>
           Current tide
         </div>
-        {showLabels && (
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: LOWEST_COLOR }}></span>
-            Lowest tide
-          </div>
-        )}
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: LOWEST_COLOR }}></span>
+          Lowest tide
+        </div>
       </div>
     </div>
   );
