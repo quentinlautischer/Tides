@@ -31,3 +31,6 @@ deploy.zip
 # Environment
 .env
 .env.local
+
+# Claude Code personal settings (may grant deploy permissions - keep out of the repo)
+.claude/settings.local.json

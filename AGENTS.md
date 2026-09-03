@@ -123,13 +123,21 @@ cd WebApp/tides-client && npm run build
 cd ../Tides.Api
 rm -rf wwwroot && mkdir wwwroot && cp -r ../tides-client/dist/. wwwroot/
 rm -rf publish && dotnet publish -c Release -o ./publish
-cd publish && powershell -Command "Compress-Archive -Path * -DestinationPath ../deploy.zip -Force" && cd ..
+cd publish && zip -qr ../deploy.zip . && cd ..
 az webapp deploy --resource-group Tides --name tides-app-ql --src-path deploy.zip --type zip
 ```
 
+The zip step above is the Linux one. On Windows it's
+`powershell -Command "Compress-Archive -Path * -DestinationPath ../deploy.zip -Force"`.
+Either way the archive must have the published files at its **root**, not nested inside a
+`publish/` folder - hence zipping `.` from inside `publish`, not the directory itself.
+
 `publish/`, `deploy.zip`, and `wwwroot/` are all gitignored build artifacts, delete them after a deploy.
 
-**Gotchas hit doing this the first time (2026-07-03):**
+Deploying needs the Azure CLI (see the version note below) and an `az login` on the machine
+doing it; the only step that differs between platforms is how the zip is made.
+
+**Gotchas hit doing this the first time (2026-07-03, on Windows):**
 - The Azure CLI refresh token expires after ~90 days of inactivity. If `az webapp list` or similar errors with `AADSTS700082` use az login command for an interactive login from Q.
 - `tides-app-ql` has SCM/FTP **basic-auth publishing credentials disabled** (`az resource show --resource-group Tides --name scm --namespace Microsoft.Web --resource-type basicPublishingCredentialsPolicies --parent sites/tides-app-ql` → `allow: false`). This is a deliberate security setting, don't re-enable it to work around auth failures.
 - Because of that, an old Azure CLI (2.44.1, the version `winget` had installed) gets a 401 on `az webapp deploy`, it only knows the legacy Kudu basic-auth flow. CLI **2.87.0+** works, it deploys using an Azure AD token instead. If deploy gets a 401, check `az version` first and `winget upgrade --id Microsoft.AzureCLI` if it's old.
