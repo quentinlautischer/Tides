@@ -5,9 +5,11 @@ import type { LowestTideAnalysis } from '../types';
 interface Props {
   analysis: LowestTideAnalysis | undefined;
   isLoading: boolean;
+  /** Sends a low to the chart, which centres it and opens its tooltip. */
+  onSelect: (timestamp: string) => void;
 }
 
-export default function LowestTidesTable({ analysis, isLoading }: Props) {
+export default function LowestTidesTable({ analysis, isLoading, onSelect }: Props) {
   const topTides = useMemo(() => {
     if (!analysis) return [];
     return [...analysis.dailyLows]
@@ -35,7 +37,8 @@ export default function LowestTidesTable({ analysis, isLoading }: Props) {
 
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6">
-      <h2 className="text-lg font-semibold text-gray-100 mb-3">Top 10 Lowest Tides</h2>
+      <h2 className="text-lg font-semibold text-gray-100">Top 10 Lowest Tides</h2>
+      <p className="text-xs text-gray-500 mb-3">Pick a row to find it on the chart</p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -53,7 +56,17 @@ export default function LowestTidesTable({ analysis, isLoading }: Props) {
               return (
                 <tr
                   key={tide.date}
-                  className={`border-b border-gray-700/50 ${isOverallLowest ? 'text-red-400' : 'text-gray-300'}`}
+                  onClick={() => onSelect(tide.lowestTimestamp)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onSelect(tide.lowestTimestamp);
+                    }
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Show ${format(ts, 'EEE, MMM d')} at ${format(ts, 'h:mm a')} on the chart`}
+                  className={`border-b border-gray-700/50 cursor-pointer hover:bg-gray-700/40 focus:outline-none focus:bg-gray-700/40 ${isOverallLowest ? 'text-red-400' : 'text-gray-300'}`}
                 >
                   <td className="py-2 pr-4 tabular-nums">{i + 1}</td>
                   <td className="py-2 pr-4">{format(ts, 'EEE, MMM d')}</td>

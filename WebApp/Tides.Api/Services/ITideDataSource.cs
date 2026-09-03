@@ -16,6 +16,13 @@ public interface ITideDataSource
 
     Task<List<TideDataPoint>> GetTidePredictionsAsync(string stationId, DateTime from, DateTime to);
 
+    /// <summary>
+    /// The high/low turning points the authority publishes for this range, on their own
+    /// timestamps. Empty where the station carries no high/low series, in which case callers
+    /// fall back to deriving them from the prediction series.
+    /// </summary>
+    Task<List<TideExtremum>> GetTideExtremaAsync(string stationId, DateTime from, DateTime to);
+
     /// <summary>Live gauge readings, or an empty list where the station has no gauge.</summary>
     Task<List<TideDataPoint>> GetObservedWaterLevelAsync(string stationId, DateTime from, DateTime to);
 }

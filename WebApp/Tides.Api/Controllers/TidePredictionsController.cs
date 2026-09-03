@@ -50,6 +50,7 @@ public class TidePredictionsController : ControllerBase
             return BadRequest(new { error = rangeError });
 
         var dataPoints = await _stations.GetTidePredictionsAsync(station, fromDate, toDate);
+        var extrema = await GetExtremaWithFallbackAsync(station, dataPoints, fromDate, toDate);
 
         var tz = TimeZoneInfo.FindSystemTimeZoneById(station.TimeZone);
         var localDataPoints = dataPoints.Select(dp => new TideDataPoint
@@ -58,12 +59,20 @@ public class TidePredictionsController : ControllerBase
             Value = dp.Value
         }).ToList();
 
+        var localExtrema = extrema.Select(e => new TideExtremum
+        {
+            Timestamp = TimeZoneInfo.ConvertTimeFromUtc(e.Timestamp, tz),
+            Value = e.Value,
+            Kind = e.Kind
+        }).ToList();
+
         return Ok(new TidePredictionResponse
         {
             Station = station,
             From = fromDate,
             To = toDate,
-            DataPoints = localDataPoints
+            DataPoints = localDataPoints,
+            Extrema = localExtrema
         });
     }
 
@@ -110,8 +119,21 @@ public class TidePredictionsController : ControllerBase
             return BadRequest(new { error = rangeError });
 
         var dataPoints = await _stations.GetTidePredictionsAsync(station, fromDate, toDate);
-        var analysis = _analysisService.Analyze(dataPoints, station.TimeZone);
+        var extrema = await GetExtremaWithFallbackAsync(station, dataPoints, fromDate, toDate);
+        var analysis = _analysisService.Analyze(extrema, station.TimeZone);
 
         return Ok(analysis);
+    }
+
+    /// <summary>
+    /// The authority's own turning points where it publishes them, otherwise the ones implied by
+    /// the 15-minute series. Both endpoints go through here so the table and the chart's markers
+    /// can never disagree about where a low is.
+    /// </summary>
+    private async Task<List<TideExtremum>> GetExtremaWithFallbackAsync(
+        Station station, List<TideDataPoint> dataPoints, DateTime fromDate, DateTime toDate)
+    {
+        var extrema = await _stations.GetTideExtremaAsync(station, fromDate, toDate);
+        return extrema.Count > 0 ? extrema : _analysisService.DeriveExtrema(dataPoints);
     }
 }

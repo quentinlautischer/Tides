@@ -13,5 +13,6 @@ public interface ITideStationDirectory
     Task<List<Station>> SearchStationsAsync(string query);
     Task<Station?> GetStationByCodeAsync(string code);
     Task<List<TideDataPoint>> GetTidePredictionsAsync(Station station, DateTime from, DateTime to);
+    Task<List<TideExtremum>> GetTideExtremaAsync(Station station, DateTime from, DateTime to);
     Task<List<TideDataPoint>> GetObservedWaterLevelAsync(Station station, DateTime from, DateTime to);
 }

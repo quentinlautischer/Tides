@@ -29,6 +29,13 @@ function App() {
   const [day, setDay] = useState(now.getDate());
   const [rangeDays, setRangeDays] = useState(30);
   const [showMap, setShowMap] = useState(false);
+  // Carries a sequence number so picking the same table row twice re-centres the chart on it
+  // rather than being swallowed as an unchanged value.
+  const [chartFocus, setChartFocus] = useState<{ timestamp: string; seq: number } | null>(null);
+
+  function handleFocusTide(timestamp: string) {
+    setChartFocus((previous) => ({ timestamp, seq: (previous?.seq ?? 0) + 1 }));
+  }
 
   function handleSelectStation(station: Station) {
     setSelectedStation(station);
@@ -99,10 +106,12 @@ function App() {
             year={year}
             month={month}
             day={day}
+            focus={chartFocus}
           />
           <LowestTidesTable
             analysis={analysis.data}
             isLoading={analysis.isLoading}
+            onSelect={handleFocusTide}
           />
         </ErrorBoundary>
       )}

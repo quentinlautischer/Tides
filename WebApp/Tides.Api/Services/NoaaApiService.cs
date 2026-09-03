@@ -96,6 +96,23 @@ public class NoaaApiService : ITideDataSource
         return points;
     }
 
+    public async Task<List<TideExtremum>> GetTideExtremaAsync(string stationId, DateTime from, DateTime to)
+    {
+        var cacheKey = $"noaa_hilo_{stationId}_{from:yyyyMMddHHmm}_{to:yyyyMMddHHmm}";
+        if (_cache.TryGetValue(cacheKey, out List<TideExtremum>? cached))
+            return cached!;
+
+        // Same predictions product as the 15-minute series, asked for at the turning points
+        // instead of on an interval. Unlike IWLS, each point comes tagged H or L.
+        var url = BuildDataUrl("predictions", stationId, from, to) + "&interval=hilo";
+        var payload = await GetDataAsync(url, stationId);
+
+        var extrema = ToExtrema(payload?.Predictions);
+
+        _cache.Set(cacheKey, extrema, TimeSpan.FromHours(6));
+        return extrema;
+    }
+
     public async Task<List<TideDataPoint>> GetObservedWaterLevelAsync(string stationId, DateTime from, DateTime to)
     {
         var cacheKey = $"noaa_wlo_{stationId}_{from:yyyyMMddHHmm}_{to:yyyyMMddHHmm}";
@@ -138,6 +155,32 @@ public class NoaaApiService : ITideDataSource
         }
 
         return payload;
+    }
+
+    private static List<TideExtremum> ToExtrema(List<NoaaPoint>? raw)
+    {
+        if (raw == null) return [];
+
+        var extrema = new List<TideExtremum>(raw.Count);
+        foreach (var p in raw)
+        {
+            // Same shape and same UTC timestamps as the interval series, plus the H/L tag.
+            if (!DateTime.TryParseExact(p.T, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out var timestamp))
+                continue;
+
+            if (!double.TryParse(p.V, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+                continue;
+
+            extrema.Add(new TideExtremum
+            {
+                Timestamp = DateTime.SpecifyKind(timestamp, DateTimeKind.Utc),
+                Value = value,
+                Kind = p.Type == "H" ? TideExtremumKind.High : TideExtremumKind.Low
+            });
+        }
+
+        return extrema;
     }
 
     private static List<TideDataPoint> ToDataPoints(List<NoaaPoint>? raw)
@@ -194,6 +237,9 @@ public class NoaaApiService : ITideDataSource
     {
         public string T { get; set; } = string.Empty;
         public string V { get; set; } = string.Empty;
+
+        /// <summary>"H" or "L" on an interval=hilo request; absent on every other product.</summary>
+        public string? Type { get; set; }
     }
 
     private class NoaaError

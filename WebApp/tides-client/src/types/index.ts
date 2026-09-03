@@ -18,11 +18,23 @@ export interface TideDataPoint {
   value: number;
 }
 
+/**
+ * A published tide turning point. Its timestamp is the real one, so it generally falls
+ * between two `TideDataPoint`s rather than on one - these are drawn over the wave, not
+ * as part of it.
+ */
+export interface TideExtremum {
+  timestamp: string;
+  value: number;
+  kind: 'High' | 'Low';
+}
+
 export interface TidePredictionResponse {
   station: Station;
   from: string;
   to: string;
   dataPoints: TideDataPoint[];
+  extrema: TideExtremum[];
 }
 
 export interface DailyTideSummary {

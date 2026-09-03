@@ -1,9 +1,10 @@
-import type { Station, TideDataPoint, TidePredictionResponse } from '../types';
+import type { Station, TideDataPoint, TideExtremum, TidePredictionResponse } from '../types';
 import { getTidePredictions as fetchFromApi } from './tidesApi';
 
 interface CachedStation {
   station: Station | null;
   points: TideDataPoint[];
+  extrema: TideExtremum[];
   /** Sorted, non-overlapping intervals that have been fetched [from, to] as yyyy-MM-dd */
   fetched: { from: string; to: string }[];
 }
@@ -13,7 +14,7 @@ const cache = new Map<string, CachedStation>();
 function getOrCreate(code: string): CachedStation {
   let entry = cache.get(code);
   if (!entry) {
-    entry = { station: null, points: [], fetched: [] };
+    entry = { station: null, points: [], extrema: [], fetched: [] };
     cache.set(code, entry);
   }
   return entry;
@@ -69,8 +70,16 @@ function mergePoints(existing: TideDataPoint[], newPoints: TideDataPoint[]): Tid
   return Array.from(map.values()).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
+/** Insert new extrema into the sorted, deduped extrema array. */
+function mergeExtrema(existing: TideExtremum[], newExtrema: TideExtremum[]): TideExtremum[] {
+  const map = new Map<string, TideExtremum>();
+  for (const e of existing) map.set(e.timestamp, e);
+  for (const e of newExtrema) map.set(e.timestamp, e);
+  return Array.from(map.values()).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
+
 /** Slice cached points to the requested [from, to] range (inclusive by date prefix). */
-function slicePoints(points: TideDataPoint[], from: string, to: string): TideDataPoint[] {
+function slicePoints<T extends { timestamp: string }>(points: T[], from: string, to: string): T[] {
   return points.filter((p) => p.timestamp >= from && p.timestamp < to + 'T\uffff');
 }
 
@@ -91,6 +100,7 @@ export async function getCachedTidePredictions(
 
   for (const result of results) {
     entry.points = mergePoints(entry.points, result.dataPoints);
+    entry.extrema = mergeExtrema(entry.extrema, result.extrema ?? []);
     mergeInterval(entry.fetched, { from: result.from.slice(0, 10), to: result.to.slice(0, 10) });
     entry.station = result.station;
   }
@@ -100,6 +110,7 @@ export async function getCachedTidePredictions(
     from,
     to,
     dataPoints: slicePoints(entry.points, from, to),
+    extrema: slicePoints(entry.extrema, from, to),
   };
 }
 

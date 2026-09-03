@@ -8,14 +8,60 @@ import {
   Filler,
   Tooltip as ChartTooltip,
   TimeScale,
+  Interaction,
 } from 'chart.js';
+import { getRelativePosition } from 'chart.js/helpers';
 import zoomPlugin from 'chartjs-plugin-zoom';
 import 'chartjs-adapter-date-fns';
 import { Line } from 'react-chartjs-2';
 import { parseISO, format } from 'date-fns';
-import type { ChartOptions, Plugin } from 'chart.js';
+import type { ChartOptions, ChartEvent, ChartType, InteractionModeFunction, Plugin } from 'chart.js';
 import { stationLabel } from '../lib/station';
 import type { TidePredictionResponse, LowestTideAnalysis } from '../types';
+
+declare module 'chart.js' {
+  interface InteractionModeMap {
+    magneticExtrema: InteractionModeFunction;
+  }
+
+  // Both switches live here rather than in component state alone, so the label plugin and the
+  // interaction mode - neither of which can see React state - read the same values.
+  // The type parameter is part of the interface being augmented, not ours to drop.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface PluginOptionsByType<TType extends ChartType> {
+    extremaMarkers: { labels: boolean; snap: boolean };
+  }
+}
+
+/** The extrema dataset is charted alongside the wave, as the second dataset. */
+const EXTREMA_DATASET = 1;
+
+/**
+ * How close the pointer has to get, horizontally, before hover snaps to a turning point.
+ * Capped as a fraction of the on-screen gap between neighbouring turning points as well: at a
+ * month's zoom they sit ~50px apart, and a flat 24px band there would cover almost the whole
+ * curve, putting every ordinary time back out of reach - the problem the snap-only mode had.
+ */
+const SNAP_RADIUS_PX = 24;
+const SNAP_RADIUS_FRACTION = 0.25;
+
+/** Minimum clear space between two drawn labels before the later one is dropped. */
+const LABEL_GAP_PX = 8;
+
+const HIGH_COLOR = '#94a3b8';
+const LOW_COLOR = '#fca5a5';
+const LOWEST_COLOR = 'oklch(70.4% 0.191 22.216)';
+
+/**
+ * A turning point positioned on the chart. `kind` rides along on the dataset so the label
+ * and tooltip can tell a high from a low; Chart.js parses `x`/`y` and ignores the rest.
+ */
+interface ExtremaPoint {
+  x: number;
+  y: number;
+  kind: 'High' | 'Low';
+  timestamp: string;
+}
 
 // Shades Saturday/Sunday behind the line so weekends are visible at a glance.
 // Draws in `beforeDraw` (before the grid/axes render) so gridlines stay visible
@@ -49,7 +95,108 @@ const weekendShadingPlugin: Plugin<'line'> = {
   },
 };
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, ChartTooltip, TimeScale, zoomPlugin, weekendShadingPlugin);
+// Prints each turning point's height and time next to it, so the numbers the app exists to
+// surface are readable without hovering - which matters most on touch, where there is no hover
+// and landing a tap on a peak is the hard part. Labels are dropped rather than allowed to
+// collide, so a month-wide view keeps only the well-separated ones and the rest fill back in
+// on zoom, with no per-range thresholds to tune.
+const extremaLabelsPlugin: Plugin<'line'> = {
+  id: 'extremaMarkers',
+  defaults: { labels: false, snap: true },
+  afterDatasetsDraw(chart) {
+    if (!chart.options.plugins?.extremaMarkers?.labels) return;
+
+    const meta = chart.getDatasetMeta(EXTREMA_DATASET);
+    const points = chart.data.datasets[EXTREMA_DATASET]?.data as unknown as ExtremaPoint[] | undefined;
+    if (!meta || !points) return;
+
+    const { ctx, chartArea } = chart;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+    ctx.clip();
+    ctx.font = '11px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+
+    let lastRight = -Infinity;
+    for (let i = 0; i < meta.data.length; i++) {
+      const element = meta.data[i];
+      const point = points[i];
+      if (!element || !point) continue;
+      if (element.x < chartArea.left || element.x > chartArea.right) continue;
+
+      const valueText = `${point.y.toFixed(2)}m`;
+      const timeText = format(point.x, 'h:mm a');
+      const halfWidth = Math.max(ctx.measureText(valueText).width, ctx.measureText(timeText).width) / 2;
+      if (element.x - halfWidth < lastRight + LABEL_GAP_PX) continue;
+      lastRight = element.x + halfWidth;
+
+      // Lows label downward and highs upward, so the text never lands on the line itself.
+      const isLow = point.kind === 'Low';
+      const valueY = isLow ? element.y + 16 : element.y - 20;
+      ctx.fillStyle = isLow ? LOW_COLOR : HIGH_COLOR;
+      ctx.fillText(valueText, element.x, valueY);
+      ctx.fillStyle = '#9ca3af';
+      ctx.fillText(timeText, element.x, valueY + 12);
+    }
+
+    ctx.restore();
+  },
+};
+
+// Hover snaps to a turning point when the pointer is near one and reads the raw 15-minute
+// series everywhere else. Snapping unconditionally (what this replaced) made the peaks easy to
+// hit but put every other time of day out of reach; plain nearest-point made the peaks - the
+// only points anyone is aiming for - the hardest thing on the chart to land on.
+Interaction.modes.magneticExtrema = (chart, e: ChartEvent) => {
+  const position = getRelativePosition(e, chart);
+
+  if (chart.options.plugins?.extremaMarkers?.snap) {
+    const extremaMeta = chart.getDatasetMeta(EXTREMA_DATASET);
+    let closest = -1;
+    let closestDistance = Infinity;
+    for (let i = 0; i < extremaMeta.data.length; i++) {
+      const distance = Math.abs(extremaMeta.data[i].x - position.x);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closest = i;
+      }
+    }
+    if (closest >= 0) {
+      const neighbours = [extremaMeta.data[closest - 1], extremaMeta.data[closest + 1]]
+        .filter(Boolean)
+        .map((n) => Math.abs(n.x - extremaMeta.data[closest].x));
+      const spacing = neighbours.length > 0 ? Math.min(...neighbours) : Infinity;
+      const radius = Math.min(SNAP_RADIUS_PX, spacing * SNAP_RADIUS_FRACTION);
+
+      if (closestDistance <= radius) {
+        return [{ element: extremaMeta.data[closest], datasetIndex: EXTREMA_DATASET, index: closest }];
+      }
+    }
+  }
+
+  const meta = chart.getDatasetMeta(0);
+  const points = (chart.data.datasets[0]?.data ?? []) as { x: number }[];
+  if (points.length === 0 || meta.data.length !== points.length) return [];
+
+  // Binary search rather than a scan: a year of predictions is ~35k points and this runs on
+  // every pointer move.
+  const target = chart.scales.x.getValueForPixel(position.x);
+  if (target == null) return [];
+
+  let lo = 0;
+  let hi = points.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].x < target) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo > 0 && Math.abs(points[lo - 1].x - target) <= Math.abs(points[lo].x - target)) lo -= 1;
+
+  return [{ element: meta.data[lo], datasetIndex: 0, index: lo }];
+};
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, ChartTooltip, TimeScale, zoomPlugin, weekendShadingPlugin, extremaLabelsPlugin);
 
 interface Props {
   predictions: TidePredictionResponse | undefined;
@@ -59,6 +206,11 @@ interface Props {
   year: number;
   month: number;
   day: number;
+  /**
+   * A turning point to centre and open the tooltip on, driven by the lowest-tides table.
+   * Carries a sequence number so picking the same row twice re-focuses it.
+   */
+  focus: { timestamp: string; seq: number } | null;
 }
 
 // Color stops for 12AM → 12PM (mirrored for PM → AM)
@@ -154,11 +306,55 @@ function JumpDateField({ value, min, max, onChange }: JumpDateFieldProps) {
   );
 }
 
-export default function TideChart({ predictions, analysis, isLoading, onShiftDays, year, month, day }: Props) {
+interface ToggleSwitchProps {
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+  title: string;
+}
+
+// A labelled switch rather than a button that merely changes colour: with two of these sitting
+// side by side, "which one is currently on" has to be legible without clicking either.
+function ToggleSwitch({ checked, onChange, label, title }: ToggleSwitchProps) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      title={title}
+      onClick={onChange}
+      className={`inline-flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 text-xs font-medium rounded-md border transition-colors ${
+        checked
+          ? 'bg-gray-700 text-gray-100 border-gray-600'
+          : 'bg-gray-800 text-gray-500 border-gray-700 hover:bg-gray-700 hover:text-gray-300'
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`relative inline-block h-3.5 w-6 shrink-0 rounded-full transition-colors ${
+          checked ? 'bg-cyan-500' : 'bg-gray-600'
+        }`}
+      >
+        <span
+          className={`absolute left-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-2.5' : 'translate-x-0'
+          }`}
+        />
+      </span>
+      {label}
+    </button>
+  );
+}
+
+export default function TideChart({ predictions, analysis, isLoading, onShiftDays, year, month, day, focus }: Props) {
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [dateInput, setDateInput] = useState('');
   const [timeInput, setTimeInput] = useState('');
   const [xRange, setXRange] = useState<{ min: number; max: number } | null>(null);
+  // Labels start off: they're the detailed read of the chart, asked for rather than imposed.
+  // The snap starts on, since it costs nothing until the pointer is near a turning point.
+  const [showLabels, setShowLabels] = useState(false);
+  const [snapToExtrema, setSnapToExtrema] = useState(true);
 
   // `predictions` only changes reference once a genuinely new dataset has
   // landed (React Query keeps the previous reference during a background
@@ -203,6 +399,18 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     }));
   }, [predictions]);
 
+  // Deliberately built from `extrema` and not from `dataPoints`: these are the authority's own
+  // turning points, so they sit between the 15-minute samples rather than on them.
+  const extremaPoints = useMemo<ExtremaPoint[]>(() => {
+    if (!predictions?.extrema) return [];
+    return predictions.extrema.map((e) => ({
+      x: parseISO(e.timestamp).getTime(),
+      y: e.value,
+      kind: e.kind,
+      timestamp: e.timestamp,
+    }));
+  }, [predictions]);
+
   const segmentColors = useMemo(() => {
     if (!predictions) return [];
     return predictions.dataPoints.map((dp) => {
@@ -233,24 +441,58 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     return closestIdx;
   }, [predictions, now]);
 
-  const lowestIdx = useMemo(() => {
-    if (!predictions || !analysis) return -1;
-    return predictions.dataPoints.findIndex((dp) => dp.timestamp === analysis.lowestTide.timestamp);
-  }, [predictions, analysis]);
+  // The overall lowest now comes from the analysis, which ranks published turning points, so it
+  // identifies one of those rather than an index into the charted series.
+  const lowestExtremaIdx = useMemo(() => {
+    if (!analysis || extremaPoints.length === 0) return -1;
+    const lowestTs = parseISO(analysis.lowestTide.timestamp).getTime();
+    return extremaPoints.findIndex((p) => p.kind === 'Low' && p.x === lowestTs);
+  }, [analysis, extremaPoints]);
 
   const pointRadii = useMemo(() => {
     if (!predictions) return [];
-    return predictions.dataPoints.map((_, i) => (i === currentIdx || i === lowestIdx ? 6 : 0));
-  }, [predictions, currentIdx, lowestIdx]);
+    return predictions.dataPoints.map((_, i) => (i === currentIdx ? 6 : 0));
+  }, [predictions, currentIdx]);
 
   const pointColors = useMemo(() => {
     if (!predictions) return [];
-    return predictions.dataPoints.map((_, i) => {
-      if (i === currentIdx) return '#67e8f9';
-      if (i === lowestIdx) return 'oklch(70.4% 0.191 22.216)';
-      return 'transparent';
-    });
-  }, [predictions, currentIdx, lowestIdx]);
+    return predictions.dataPoints.map((_, i) => (i === currentIdx ? '#67e8f9' : 'transparent'));
+  }, [predictions, currentIdx]);
+
+  const extremaRadii = useMemo(
+    () => extremaPoints.map((_, i) => (i === lowestExtremaIdx ? 6 : 3.5)),
+    [extremaPoints, lowestExtremaIdx],
+  );
+
+  const extremaColors = useMemo(
+    () => extremaPoints.map((p, i) => {
+      if (i === lowestExtremaIdx) return LOWEST_COLOR;
+      return p.kind === 'Low' ? LOW_COLOR : HIGH_COLOR;
+    }),
+    [extremaPoints, lowestExtremaIdx],
+  );
+
+  // Slides the visible window so `targetX` sits in the middle of it, preserving the current
+  // zoom width and stopping at the edges of the loaded data rather than scrolling past them.
+  const centreOn = useCallback((chart: ChartJS, targetX: number) => {
+    if (chartPoints.length === 0) return;
+    const dataMin = chartPoints[0].x;
+    const dataMax = chartPoints[chartPoints.length - 1].x;
+    const xScale = chart.scales.x;
+    const halfWidth = (xScale.max - xScale.min) / 2;
+
+    let newMin = targetX - halfWidth;
+    let newMax = targetX + halfWidth;
+    if (newMin < dataMin) {
+      newMax += dataMin - newMin;
+      newMin = dataMin;
+    }
+    if (newMax > dataMax) {
+      newMin -= newMax - dataMax;
+      newMax = dataMax;
+    }
+    setXRange({ min: Math.max(newMin, dataMin), max: Math.min(newMax, dataMax) });
+  }, [chartPoints]);
 
   // Reproduces exactly what mousing over a point on the line would show, and
   // re-centers the visible x-axis window on that point, preserving whatever
@@ -329,31 +571,48 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       }
     });
 
-    const targetX = chartPoints[idx].x;
-    const dataMin = chartPoints[0].x;
-    const dataMax = chartPoints[chartPoints.length - 1].x;
-    const xScale = chart.scales.x;
-    const halfWidth = (xScale.max - xScale.min) / 2;
-    let newMin = targetX - halfWidth;
-    let newMax = targetX + halfWidth;
-    if (newMin < dataMin) {
-      newMax += dataMin - newMin;
-      newMin = dataMin;
-    }
-    if (newMax > dataMax) {
-      newMin -= newMax - dataMax;
-      newMax = dataMax;
-    }
-    newMin = Math.max(newMin, dataMin);
-    newMax = Math.min(newMax, dataMax);
-    setXRange({ min: newMin, max: newMax });
+    centreOn(chart, chartPoints[idx].x);
 
     const element = chart.getDatasetMeta(0).data[idx];
     if (!element) return;
     chart.setActiveElements([{ datasetIndex: 0, index: idx }]);
     chart.tooltip?.setActiveElements([{ datasetIndex: 0, index: idx }], { x: element.x, y: element.y });
     chart.update();
-  }, [predictions, year, month, day, chartPoints]);
+  }, [predictions, year, month, day, chartPoints, centreOn]);
+
+  // Picking a row in the lowest-tides table centres that low and opens its tooltip. Tapping a
+  // table row is precise in a way that scrubbing for a trough is not, which is the point of the
+  // cross-link. The markers have to come on first: the tooltip anchors to a point in the extrema
+  // dataset, which draws nothing while that dataset is hidden. Same render-time adjustment the
+  // zoom reset above uses, rather than a second render from inside an effect.
+  const [focusForExtrema, setFocusForExtrema] = useState(focus);
+  if (focus !== focusForExtrema) {
+    setFocusForExtrema(focus);
+    if (focus) setShowLabels(true);
+  }
+
+  // Which selection the chart has already been moved for, so that toggling the markers back on
+  // later doesn't re-run a stale jump.
+  const appliedFocusSeq = useRef<number | null>(null);
+  useEffect(() => {
+    if (!focus || !showLabels || appliedFocusSeq.current === focus.seq) return;
+
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const targetTs = parseISO(focus.timestamp).getTime();
+    const idx = extremaPoints.findIndex((p) => p.x === targetTs);
+    if (idx < 0) return;
+
+    const element = chart.getDatasetMeta(EXTREMA_DATASET).data[idx];
+    if (!element) return;
+
+    appliedFocusSeq.current = focus.seq;
+    centreOn(chart, extremaPoints[idx].x);
+    chart.setActiveElements([{ datasetIndex: EXTREMA_DATASET, index: idx }]);
+    chart.tooltip?.setActiveElements([{ datasetIndex: EXTREMA_DATASET, index: idx }], { x: element.x, y: element.y });
+    chart.update();
+  }, [focus, showLabels, extremaPoints, centreOn]);
 
   const handleResetZoom = useCallback(() => {
     chartRef.current?.resetZoom();
@@ -376,6 +635,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
   const rangeStart = format(chartPoints[0].x, 'yyyy-MM-dd');
   const rangeEnd = format(chartPoints[chartPoints.length - 1].x, 'yyyy-MM-dd');
   const hasJump = Boolean(dateInput || timeInput);
+
   const jumpFieldClass = `${JUMP_FIELD_BASE} focus:outline-none focus:ring-1 focus:ring-cyan-400`;
 
   const data = {
@@ -395,6 +655,22 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           borderColor: (ctx: { p0DataIndex: number }) => segmentColors[ctx.p0DataIndex] ?? '#9ca3af',
         },
       },
+      {
+        // Drawn as its own dataset rather than as styled points on the wave, because its
+        // timestamps don't line up with the 15-minute grid the wave is plotted on. That also
+        // gives the markers their own hit-testable elements for the hover snap and the tooltip.
+        data: extremaPoints,
+        showLine: false,
+        // Hidden by radius rather than by `hidden`, because the snap still anchors its tooltip
+        // to these points when the labels are switched off - a hidden dataset draws nothing at
+        // all, including the point the tooltip is pointing at.
+        pointRadius: showLabels ? extremaRadii : 0,
+        pointBackgroundColor: extremaColors,
+        pointBorderColor: '#1f2937',
+        pointBorderWidth: 1.5,
+        pointHoverRadius: 6,
+        pointHoverBackgroundColor: extremaColors,
+      },
     ],
   };
 
@@ -404,7 +680,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     responsive: true,
     maintainAspectRatio: false,
     interaction: {
-      mode: 'index',
+      mode: 'magneticExtrema',
       intersect: false,
     },
     scales: {
@@ -435,7 +711,11 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     plugins: {
       tooltip: {
         callbacks: {
-          label: (ctx) => `Tide Level: ${(ctx.parsed.y ?? 0).toFixed(2)}m`,
+          label: (ctx) => {
+            const height = `${(ctx.parsed.y ?? 0).toFixed(2)}m`;
+            if (ctx.datasetIndex !== EXTREMA_DATASET) return `Tide Level: ${height}`;
+            return `${(ctx.raw as ExtremaPoint).kind === 'Low' ? 'Low' : 'High'} tide: ${height}`;
+          },
         },
         backgroundColor: '#1f2937',
         titleColor: '#f3f4f6',
@@ -446,6 +726,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         padding: 10,
       },
       legend: { display: false },
+      extremaMarkers: { labels: showLabels, snap: snapToExtrema },
       zoom: {
         // Without explicit limits, pan/zoom have no bound at all and will
         // happily scroll or zoom past the edges of the loaded data into
@@ -487,12 +768,26 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           })()}
         </div>
         <div className="hidden sm:flex flex-col items-end gap-1.5 shrink-0">
-          <button
-            onClick={handleResetZoom}
-            className="px-3 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
-          >
-            Reset Zoom
-          </button>
+          <div className="flex gap-1.5">
+            <ToggleSwitch
+              checked={showLabels}
+              onChange={() => setShowLabels((v) => !v)}
+              label="Labels"
+              title="Mark each high and low with its height and time"
+            />
+            <ToggleSwitch
+              checked={snapToExtrema}
+              onChange={() => setSnapToExtrema((v) => !v)}
+              label="Snap"
+              title="Pull the hover onto the nearest high or low"
+            />
+            <button
+              onClick={handleResetZoom}
+              className="px-3 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+            >
+              Reset Zoom
+            </button>
+          </div>
           <div className="flex gap-1.5">
             <button onClick={() => onShiftDays(-30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&laquo; 30d</button>
             <button onClick={() => onShiftDays(-7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&lsaquo; 7d</button>
@@ -541,6 +836,20 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         <button onClick={() => onShiftDays(7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">7d &rsaquo;</button>
         <button onClick={() => onShiftDays(30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">30d &raquo;</button>
       </div>
+      <div className="flex sm:hidden items-center justify-center gap-1.5 mt-1.5">
+        <ToggleSwitch
+          checked={showLabels}
+          onChange={() => setShowLabels((v) => !v)}
+          label="Labels"
+          title="Mark each high and low with its height and time"
+        />
+        <ToggleSwitch
+          checked={snapToExtrema}
+          onChange={() => setSnapToExtrema((v) => !v)}
+          label="Snap"
+          title="Pull the hover onto the nearest high or low"
+        />
+      </div>
       <div className="flex sm:hidden flex-wrap items-center justify-center gap-1.5 mt-1.5">
         <span className="text-xs font-medium text-gray-400">Jump to</span>
         <JumpDateField
@@ -588,14 +897,28 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: 'rgba(148, 163, 184, 0.35)' }}></span>
           Weekend
         </div>
+        {showLabels && (
+          <>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: HIGH_COLOR }}></span>
+              High tide
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: LOW_COLOR }}></span>
+              Low tide
+            </div>
+          </>
+        )}
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-3 bg-cyan-300 rounded-full"></span>
           Current tide
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: 'oklch(70.4% 0.191 22.216)' }}></span>
-          Lowest tide
-        </div>
+        {showLabels && (
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: LOWEST_COLOR }}></span>
+            Lowest tide
+          </div>
+        )}
       </div>
     </div>
   );

@@ -4,17 +4,19 @@ namespace Tides.Api.Services;
 
 public class TideAnalysisService : ITideAnalysisService
 {
-    public LowestTideAnalysis Analyze(List<TideDataPoint> dataPoints, string timeZoneId)
+    public LowestTideAnalysis Analyze(List<TideExtremum> extrema, string timeZoneId)
     {
-        if (dataPoints.Count == 0)
+        // Highs are charted but never ranked - the whole point of the table is how low it goes.
+        var lows = extrema.Where(e => e.Kind == TideExtremumKind.Low).ToList();
+        if (lows.Count == 0)
             return new LowestTideAnalysis();
 
         var tz = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
 
-        var overallLowest = dataPoints.MinBy(d => d.Value)!;
+        var overallLowest = lows.MinBy(d => d.Value)!;
         var overallLocalTime = TimeZoneInfo.ConvertTimeFromUtc(overallLowest.Timestamp.ToUniversalTime(), tz);
 
-        var dailyLows = dataPoints
+        var dailyLows = lows
             .GroupBy(d => TimeZoneInfo.ConvertTimeFromUtc(d.Timestamp.ToUniversalTime(), tz).Date)
             .Select(g =>
             {
@@ -42,6 +44,41 @@ public class TideAnalysisService : ITideAnalysisService
             DailyLows = dailyLows
         };
     }
+
+    public List<TideExtremum> DeriveExtrema(List<TideDataPoint> dataPoints)
+    {
+        var ordered = dataPoints.OrderBy(d => d.Timestamp).ToList();
+        var extrema = new List<TideExtremum>();
+        if (ordered.Count < 3) return extrema;
+
+        for (var i = 1; i < ordered.Count - 1; i++)
+        {
+            var value = ordered[i].Value;
+
+            // A turn can straddle two equal samples. Emit it once, at the first of them, and
+            // compare against the nearest samples that actually differ - a strict
+            // prev/curr/next test drops such a turn entirely.
+            if (ordered[i - 1].Value == value) continue;
+
+            var next = i + 1;
+            while (next < ordered.Count && ordered[next].Value == value) next++;
+            if (next >= ordered.Count) break;
+
+            if (value > ordered[i - 1].Value && value > ordered[next].Value)
+                extrema.Add(ToExtremum(ordered[i], TideExtremumKind.High));
+            else if (value < ordered[i - 1].Value && value < ordered[next].Value)
+                extrema.Add(ToExtremum(ordered[i], TideExtremumKind.Low));
+        }
+
+        return extrema;
+    }
+
+    private static TideExtremum ToExtremum(TideDataPoint point, TideExtremumKind kind) => new()
+    {
+        Timestamp = point.Timestamp,
+        Value = point.Value,
+        Kind = kind
+    };
 
     private static string GetTimeOfDay(int hour) => hour switch
     {

@@ -56,6 +56,9 @@ public class TideStationDirectory : ITideStationDirectory
     public Task<List<TideDataPoint>> GetTidePredictionsAsync(Station station, DateTime from, DateTime to)
         => SourceFor(station).GetTidePredictionsAsync(station.Id, from, to);
 
+    public Task<List<TideExtremum>> GetTideExtremaAsync(Station station, DateTime from, DateTime to)
+        => SourceFor(station).GetTideExtremaAsync(station.Id, from, to);
+
     public Task<List<TideDataPoint>> GetObservedWaterLevelAsync(Station station, DateTime from, DateTime to)
         => SourceFor(station).GetObservedWaterLevelAsync(station.Id, from, to);
 

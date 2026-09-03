@@ -101,6 +101,89 @@ public class IwlsApiService : ITideDataSource
         return dataPoints;
     }
 
+    public async Task<List<TideExtremum>> GetTideExtremaAsync(string stationId, DateTime from, DateTime to)
+    {
+        var cacheKey = $"hilo_{stationId}_{from:yyyyMMdd}_{to:yyyyMMdd}";
+        if (_cache.TryGetValue(cacheKey, out List<TideExtremum>? cached))
+            return cached!;
+
+        // Same 30-day upstream cap as the prediction series, so the same chunking applies.
+        const int chunkDays = 30;
+        var raw = new List<TideDataPoint>();
+        var chunkStart = from;
+
+        try
+        {
+            while (chunkStart < to)
+            {
+                var chunkEnd = chunkStart.AddDays(chunkDays);
+                if (chunkEnd > to) chunkEnd = to;
+
+                var fromStr = chunkStart.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
+                var toStr = chunkEnd.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+                // No resolution parameter here: the series is the turning points themselves,
+                // published on their own irregular timestamps.
+                var url = $"stations/{stationId}/data?time-series-code=wlp-hilo&from={fromStr}&to={toStr}";
+                var response = await RateLimitedGetAsync(url);
+                var rawData = await response.Content.ReadFromJsonAsync<List<IwlsDataPoint>>(JsonOptions);
+
+                if (rawData != null)
+                {
+                    raw.AddRange(rawData.Select(d => new TideDataPoint
+                    {
+                        Timestamp = DateTime.SpecifyKind(d.EventDate, DateTimeKind.Utc),
+                        Value = d.Value
+                    }));
+                }
+
+                chunkStart = chunkEnd;
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            // The station list is filtered on carrying `wlp`, which doesn't guarantee `wlp-hilo`.
+            // Callers derive the turning points from the prediction series instead.
+            _logger.LogDebug(ex, "No wlp-hilo series for IWLS station {StationId}", stationId);
+            return [];
+        }
+
+        var extrema = ClassifyAlternating(raw);
+        _cache.Set(cacheKey, extrema, TimeSpan.FromHours(6));
+        return extrema;
+    }
+
+    /// <summary>
+    /// IWLS publishes wlp-hilo with no high/low flag - the points simply alternate. Comparing each
+    /// against an adjacent one recovers which is which, since a turning point is a high exactly when
+    /// it sits above its neighbours. The first point is judged against the one after it instead.
+    /// </summary>
+    private static List<TideExtremum> ClassifyAlternating(List<TideDataPoint> points)
+    {
+        var ordered = points.OrderBy(p => p.Timestamp).ToList();
+        var extrema = new List<TideExtremum>(ordered.Count);
+
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            TideDataPoint? neighbour = i > 0
+                ? ordered[i - 1]
+                : i + 1 < ordered.Count ? ordered[i + 1] : null;
+
+            extrema.Add(new TideExtremum
+            {
+                Timestamp = ordered[i].Timestamp,
+                Value = ordered[i].Value,
+                // A lone point has nothing to compare against; there's no way to tell, and one
+                // mislabelled marker at the edge of a range beats dropping it.
+                Kind = neighbour == null || ordered[i].Value >= neighbour.Value
+                    ? TideExtremumKind.High
+                    : TideExtremumKind.Low
+            });
+        }
+
+        return extrema;
+    }
+
     public async Task<List<TideDataPoint>> GetObservedWaterLevelAsync(string stationId, DateTime from, DateTime to)
     {
         var cacheKey = $"wlo_{stationId}_{from:yyyyMMddHHmm}_{to:yyyyMMddHHmm}";
