@@ -51,6 +51,16 @@ function App() {
     };
   }, [year, month, day, rangeDays]);
 
+  // The chart's jump-to picker is unbounded, so a date outside the loaded range moves the range
+  // onto it rather than being refused. Starting the range half its own length before the target
+  // leaves the target in the middle of the chart once the new data lands.
+  function handleJumpOutOfRange(target: Date) {
+    const start = addDays(target, -Math.floor(rangeDays / 2));
+    setYear(start.getFullYear());
+    setMonth(start.getMonth() + 1);
+    setDay(start.getDate());
+  }
+
   function handleShiftDays(days: number) {
     const current = new Date(year, month - 1, day);
     const shifted = addDays(current, days);
@@ -103,6 +113,7 @@ function App() {
             analysis={analysis.data}
             isLoading={predictions.isLoading}
             onShiftDays={handleShiftDays}
+            onJumpOutOfRange={handleJumpOutOfRange}
             year={year}
             month={month}
             day={day}

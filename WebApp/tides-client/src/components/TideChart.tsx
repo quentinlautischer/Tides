@@ -15,9 +15,20 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 import 'chartjs-adapter-date-fns';
 import { Line } from 'react-chartjs-2';
 import { parseISO, format } from 'date-fns';
+import type { KeyboardEvent } from 'react';
 import type { ChartOptions, ChartEvent, ChartType, InteractionModeFunction, Plugin } from 'chart.js';
 import { stationLabel } from '../lib/station';
 import type { TidePredictionResponse, LowestTideAnalysis } from '../types';
+
+/**
+ * Where the jump-to crosshair is drawn, handed to its plugin through `options.plugins`.
+ * Null while nothing is selected, or while the selection sits outside the loaded data.
+ */
+interface JumpMarkerOptions {
+  ts: number | null;
+  value: number | null;
+  label: string;
+}
 
 declare module 'chart.js' {
   interface InteractionModeMap {
@@ -30,6 +41,7 @@ declare module 'chart.js' {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface PluginOptionsByType<TType extends ChartType> {
     extremaMarkers: { labels: boolean; snap: boolean };
+    jumpMarker: JumpMarkerOptions;
   }
 }
 
@@ -51,6 +63,7 @@ const LABEL_GAP_PX = 8;
 const HIGH_COLOR = '#94a3b8';
 const LOW_COLOR = '#fca5a5';
 const LOWEST_COLOR = 'oklch(70.4% 0.191 22.216)';
+const JUMP_COLOR = '#f97316';
 
 /**
  * A turning point positioned on the chart. `kind` rides along on the dataset so the label
@@ -144,6 +157,86 @@ const extremaLabelsPlugin: Plugin<'line'> = {
   },
 };
 
+// Marks the jump-to selection with a crosshair that stays put. The jump used to be shown by
+// driving Chart.js's own active element and tooltip, but those are hover state: the first mouse
+// move across the chart wiped the selection the user had just made. Drawing it from the plugin's
+// own options instead means it survives hovering, panning and zooming, and only the Clear button
+// takes it away.
+const jumpMarkerPlugin: Plugin<'line', JumpMarkerOptions> = {
+  id: 'jumpMarker',
+  defaults: { ts: null, value: null, label: '' },
+  afterDatasetsDraw(chart, _args, opts) {
+    const { ctx, chartArea, scales } = chart;
+    const xScale = scales.x;
+    const yScale = scales.y;
+    if (!chartArea || !xScale || !yScale) return;
+    if (opts.ts == null || opts.value == null) return;
+    if (opts.ts < xScale.min || opts.ts > xScale.max) return;
+
+    const x = xScale.getPixelForValue(opts.ts);
+    const y = yScale.getPixelForValue(opts.value);
+    const ring = 6;
+    // The arms stop short of the ring, so the two don't smear into a blob at the intersection.
+    const gap = ring + 3;
+
+    ctx.save();
+
+    ctx.strokeStyle = 'rgba(249, 115, 22, 0.55)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, Math.max(chartArea.top, y - gap));
+    ctx.moveTo(x, Math.min(chartArea.bottom, y + gap));
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.moveTo(chartArea.left, y);
+    ctx.lineTo(Math.max(chartArea.left, x - gap), y);
+    ctx.moveTo(Math.min(chartArea.right, x + gap), y);
+    ctx.lineTo(chartArea.right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    ctx.arc(x, y, ring, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(31, 41, 55, 0.9)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = JUMP_COLOR;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(x, y, 1.75, 0, Math.PI * 2);
+    ctx.fillStyle = JUMP_COLOR;
+    ctx.fill();
+
+    // No tooltip reports the jump any more, so the marker carries its own time and height.
+    if (opts.label) {
+      ctx.font = '600 11px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const height = 18;
+      const width = ctx.measureText(opts.label).width + 12;
+      const boxX = Math.min(Math.max(x - width / 2, chartArea.left + 2), chartArea.right - width - 2);
+      // Sits above the point, flipping below it when there is no room at the top.
+      let boxY = y - gap - 5 - height;
+      if (boxY < chartArea.top + 2) boxY = y + gap + 5;
+
+      ctx.beginPath();
+      ctx.roundRect(boxX, boxY, width, height, 4);
+      ctx.fillStyle = 'rgba(31, 41, 55, 0.95)';
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = JUMP_COLOR;
+      ctx.stroke();
+
+      ctx.fillStyle = '#fdba74';
+      ctx.fillText(opts.label, boxX + width / 2, boxY + height / 2 + 0.5);
+    }
+
+    ctx.restore();
+  },
+};
+
 // Hover snaps to a turning point when the pointer is near one and reads the raw 15-minute
 // series everywhere else. Snapping unconditionally (what this replaced) made the peaks easy to
 // hit but put every other time of day out of reach; plain nearest-point made the peaks - the
@@ -196,13 +289,18 @@ Interaction.modes.magneticExtrema = (chart, e: ChartEvent) => {
   return [{ element: meta.data[lo], datasetIndex: 0, index: lo }];
 };
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, ChartTooltip, TimeScale, zoomPlugin, weekendShadingPlugin, extremaLabelsPlugin);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, ChartTooltip, TimeScale, zoomPlugin, weekendShadingPlugin, extremaLabelsPlugin, jumpMarkerPlugin);
 
 interface Props {
   predictions: TidePredictionResponse | undefined;
   analysis: LowestTideAnalysis | undefined;
   isLoading: boolean;
   onShiftDays: (days: number) => void;
+  /**
+   * Asks for the loaded range to be moved onto a jump-to date it doesn't cover. The picker is
+   * unbounded, so this is how a date beyond the loaded window is honoured rather than refused.
+   */
+  onJumpOutOfRange: (target: Date) => void;
   year: number;
   month: number;
   day: number;
@@ -255,11 +353,74 @@ function timeOfDayColor(hour: number): string {
 const JUMP_FIELD_BASE =
   'px-2 py-1 text-xs font-medium text-gray-200 bg-gray-700 border border-gray-600 rounded-md';
 
+/** A resolved jump-to selection. `loaded` is false when the chart holds no data for that day. */
+interface JumpTarget {
+  ts: number;
+  loaded: boolean;
+  value: number;
+}
+
+/**
+ * Turns the two jump-to fields into a point on the chart.
+ *
+ * Either field works on its own: an unset date falls back to the start of the loaded range
+ * (which is what the time-only input has always jumped within) and an unset time to midnight.
+ * Coverage is judged by calendar day, so a time landing just outside the partially-loaded
+ * boundary days pins to the edge instead of asking for a range that is already on screen.
+ */
+function resolveJumpTarget(
+  date: string,
+  time: string,
+  fallback: { year: number; month: number; day: number },
+  points: { x: number; y: number }[],
+): JumpTarget | null {
+  if ((!date && !time) || points.length === 0) return null;
+
+  let targetYear = fallback.year;
+  let targetMonth = fallback.month;
+  let targetDay = fallback.day;
+  if (date) {
+    const [y, m, d] = date.split('-').map(Number);
+    if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return null;
+    targetYear = y;
+    targetMonth = m;
+    targetDay = d;
+  }
+
+  let hours = 0;
+  let minutes = 0;
+  if (time) {
+    [hours, minutes] = time.split(':').map(Number);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  }
+
+  const wanted = new Date(targetYear, targetMonth - 1, targetDay, hours, minutes).getTime();
+  const dataMin = points[0].x;
+  const dataMax = points[points.length - 1].x;
+  // `yyyy-MM-dd` compares correctly as a string, so no parsing needed.
+  const wantedDay = format(wanted, 'yyyy-MM-dd');
+  if (wantedDay < format(dataMin, 'yyyy-MM-dd') || wantedDay > format(dataMax, 'yyyy-MM-dd')) {
+    return { ts: wanted, loaded: false, value: 0 };
+  }
+
+  const ts = Math.min(Math.max(wanted, dataMin), dataMax);
+  // Read the height off the line at the requested time rather than snapping to the nearest
+  // sample, so the crosshair sits where the user pointed even when zoomed in far enough to see
+  // the gap between samples.
+  let i = 0;
+  while (i < points.length - 2 && points[i + 1].x <= ts) i++;
+  const before = points[i];
+  const after = points[i + 1] ?? before;
+  const span = after.x - before.x;
+  const frac = span > 0 ? Math.min(Math.max((ts - before.x) / span, 0), 1) : 0;
+  return { ts, loaded: true, value: before.y + (after.y - before.y) * frac };
+}
+
 interface JumpDateFieldProps {
   value: string;
-  min: string;
-  max: string;
+  display: string;
   onChange: (value: string) => void;
+  onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
 }
 
 // A native date input keeps the platform calendar picker, but its displayed
@@ -276,7 +437,7 @@ interface JumpDateFieldProps {
 // mobile. Desktop is the reverse: clicking a date input focuses a segment
 // without opening the calendar, since only the (invisible here) indicator icon
 // does that, hence the `showPicker()` nudge on click.
-function JumpDateField({ value, min, max, onChange }: JumpDateFieldProps) {
+function JumpDateField({ value, display, onChange, onKeyDown }: JumpDateFieldProps) {
   function openPicker(el: HTMLInputElement) {
     if (typeof el.showPicker !== 'function') return;
     try {
@@ -290,15 +451,14 @@ function JumpDateField({ value, min, max, onChange }: JumpDateFieldProps) {
   return (
     <span className="relative inline-flex rounded-md focus-within:ring-1 focus-within:ring-cyan-400">
       <span aria-hidden="true" className={`${JUMP_FIELD_BASE} whitespace-nowrap`}>
-        {value ? format(parseISO(value), 'EEE, MMM d') : 'Date'}
+        {display}
       </span>
       <input
         type="date"
         aria-label="Jump to date"
-        min={min}
-        max={max}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
         onClick={(e) => openPicker(e.currentTarget)}
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
       />
@@ -346,7 +506,7 @@ function ToggleSwitch({ checked, onChange, label, title }: ToggleSwitchProps) {
   );
 }
 
-export default function TideChart({ predictions, analysis, isLoading, onShiftDays, year, month, day, focus }: Props) {
+export default function TideChart({ predictions, analysis, isLoading, onShiftDays, onJumpOutOfRange, year, month, day, focus }: Props) {
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [dateInput, setDateInput] = useState('');
   const [timeInput, setTimeInput] = useState('');
@@ -367,8 +527,6 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
   if (predictions !== predictionsForZoom) {
     setPredictionsForZoom(predictions);
     setXRange(null);
-    setDateInput('');
-    setTimeInput('');
   }
 
   // The chart's active/hover elements are imperative chart.js state (index
@@ -511,91 +669,47 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     setXRange({ min: Math.max(newMin, dataMin), max: Math.min(newMax, dataMax) });
   }, [chartPoints]);
 
-  // Reproduces exactly what mousing over a point on the line would show, and
-  // re-centers the visible x-axis window on that point, preserving whatever
-  // zoom width is currently in effect. Runs directly in the inputs' onChange
-  // handlers (not an effect) since it's driven by a discrete user action and
-  // needs the chart's pre-update scale bounds to compute the new center.
-  const handleJumpChange = useCallback((nextDate: string, nextTime: string) => {
-    const points = predictions?.dataPoints ?? [];
-    const first = points.length > 0 ? parseISO(points[0].timestamp).getTime() : 0;
-    const last = points.length > 0 ? parseISO(points[points.length - 1].timestamp).getTime() : 0;
+  // Where the crosshair goes, recomputed whenever the fields or the loaded data change.
+  const jumpTarget = useMemo(
+    () => resolveJumpTarget(dateInput, timeInput, { year, month, day }, chartPoints),
+    [dateInput, timeInput, year, month, day, chartPoints],
+  );
 
-    // The input carries min/max, but not every picker enforces them - mobile
-    // ones in particular will happily hand back a day outside the range. Clamp
-    // before it reaches state, otherwise the field sits there showing a date
-    // the chart has no data for while the jump silently does nothing.
-    // `yyyy-MM-dd` compares correctly as a string, so no parsing needed.
-    let date = nextDate;
-    if (date && points.length > 0) {
-      const lo = format(first, 'yyyy-MM-dd');
-      const hi = format(last, 'yyyy-MM-dd');
-      if (date < lo) date = lo;
-      else if (date > hi) date = hi;
-    }
-
-    setDateInput(date);
-    setTimeInput(nextTime);
-
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    const clearHover = () => {
-      chart.setActiveElements([]);
-      chart.tooltip?.setActiveElements([], { x: 0, y: 0 });
-      chart.update();
-    };
-
-    if ((!date && !nextTime) || points.length === 0) {
-      clearHover();
+  // Brings a selection into view. A date the loaded range doesn't cover asks the parent to move
+  // the range onto it, which lands the target in the middle of the fresh chart on its own.
+  // Otherwise the window pans so the target sits in the middle - unless it is already on screen,
+  // since panning out from under the user for a point they can already see is just jarring.
+  const revealJump = useCallback((target: JumpTarget | null) => {
+    if (!target) return;
+    if (!target.loaded) {
+      onJumpOutOfRange(new Date(target.ts));
       return;
     }
 
-    // Either picker works on its own: an unset date falls back to the start of
-    // the loaded range (which is what the time-only input has always jumped
-    // within), and an unset time falls back to midnight on the chosen date.
-    let targetYear = year;
-    let targetMonth = month;
-    let targetDay = day;
-    if (date) {
-      const [y, m, d] = date.split('-').map(Number);
-      if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return;
-      targetYear = y;
-      targetMonth = m;
-      targetDay = d;
-    }
+    const chart = chartRef.current;
+    const xScale = chart?.scales.x;
+    if (!chart || !xScale) return;
+    if (target.ts >= xScale.min && target.ts <= xScale.max) return;
+    centreOn(chart, target.ts);
+  }, [centreOn, onJumpOutOfRange]);
 
-    let hours = 0;
-    let minutes = 0;
-    if (nextTime) {
-      [hours, minutes] = nextTime.split(':').map(Number);
-      if (Number.isNaN(hours) || Number.isNaN(minutes)) return;
-    }
+  // Runs from the inputs' own handlers rather than an effect, since it is driven by a discrete
+  // user action and needs the chart's pre-update scale bounds to decide where to pan.
+  const handleJumpChange = useCallback((nextDate: string, nextTime: string) => {
+    setDateInput(nextDate);
+    setTimeInput(nextTime);
+    revealJump(resolveJumpTarget(nextDate, nextTime, { year, month, day }, chartPoints));
+  }, [year, month, day, chartPoints, revealJump]);
 
-    // Even an in-range day can overshoot once the time is applied, since the
-    // data starts and ends partway through its boundary days. Pin to the edge
-    // rather than dropping the jump.
-    const rawTs = new Date(targetYear, targetMonth - 1, targetDay, hours, minutes).getTime();
-    const targetTs = Math.min(Math.max(rawTs, first), last);
-
-    let idx = 0;
-    let closestDiff = Infinity;
-    points.forEach((dp, i) => {
-      const diff = Math.abs(parseISO(dp.timestamp).getTime() - targetTs);
-      if (diff < closestDiff) {
-        closestDiff = diff;
-        idx = i;
-      }
-    });
-
-    centreOn(chart, chartPoints[idx].x);
-
-    const element = chart.getDatasetMeta(0).data[idx];
-    if (!element) return;
-    chart.setActiveElements([{ datasetIndex: 0, index: idx }]);
-    chart.tooltip?.setActiveElements([{ datasetIndex: 0, index: idx }], { x: element.x, y: element.y });
-    chart.update();
-  }, [predictions, year, month, day, chartPoints, centreOn]);
+  // Enter is the natural way to be done with a native date or time picker, but neither control
+  // does anything with it on its own. Blurring closes whatever the browser popped open, and
+  // re-revealing means Enter also brings the marker back after panning away from it by hand.
+  const handleJumpKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    e.currentTarget.blur();
+    revealJump(jumpTarget);
+  }, [jumpTarget, revealJump]);
 
   // Picking a row in the lowest-tides table centres that low and opens its tooltip. Tapping a
   // table row is precise in a way that scrubbing for a trough is not, which is the point of the
@@ -641,11 +755,12 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
 
   if (!predictions || chartPoints.length === 0) return null;
 
-  // Scopes the jump-to-date picker to the loaded range, so its calendar can only
-  // reach days the chart actually holds data for.
-  const rangeStart = format(chartPoints[0].x, 'yyyy-MM-dd');
-  const rangeEnd = format(chartPoints[chartPoints.length - 1].x, 'yyyy-MM-dd');
   const hasJump = Boolean(dateInput || timeInput);
+  // The field draws its own label, so it can leave the year off while the target is in the year
+  // already on screen and spell it out once the jump leaves that year.
+  const jumpDateLabel = dateInput
+    ? format(parseISO(dateInput), Number(dateInput.slice(0, 4)) === year ? 'EEE, MMM d' : 'MMM d, yyyy')
+    : 'Date';
 
   const jumpFieldClass = `${JUMP_FIELD_BASE} focus:outline-none focus:ring-1 focus:ring-cyan-400`;
 
@@ -744,6 +859,13 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
       },
       legend: { display: false },
       extremaMarkers: { labels: showLabels, snap: snapToExtrema },
+      jumpMarker: {
+        ts: jumpTarget?.loaded ? jumpTarget.ts : null,
+        value: jumpTarget?.loaded ? jumpTarget.value : null,
+        label: jumpTarget?.loaded
+          ? `${format(jumpTarget.ts, 'MMM d, h:mm a')} · ${jumpTarget.value.toFixed(2)}m`
+          : '',
+      },
       zoom: {
         // Without explicit limits, pan/zoom have no bound at all and will
         // happily scroll or zoom past the edges of the loaded data into
@@ -815,15 +937,16 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
             <span className="text-xs font-medium text-gray-400">Jump to</span>
             <JumpDateField
               value={dateInput}
-              min={rangeStart}
-              max={rangeEnd}
+              display={jumpDateLabel}
               onChange={(v) => handleJumpChange(v, timeInput)}
+              onKeyDown={handleJumpKeyDown}
             />
             <input
               type="time"
               aria-label="Jump to time"
               value={timeInput}
               onChange={(e) => handleJumpChange(dateInput, e.target.value)}
+              onKeyDown={handleJumpKeyDown}
               className={jumpFieldClass}
             />
             {hasJump && (
@@ -871,15 +994,16 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         <span className="text-xs font-medium text-gray-400">Jump to</span>
         <JumpDateField
           value={dateInput}
-          min={rangeStart}
-          max={rangeEnd}
+          display={jumpDateLabel}
           onChange={(v) => handleJumpChange(v, timeInput)}
+          onKeyDown={handleJumpKeyDown}
         />
         <input
           type="time"
           aria-label="Jump to time"
           value={timeInput}
           onChange={(e) => handleJumpChange(dateInput, e.target.value)}
+          onKeyDown={handleJumpKeyDown}
           className={jumpFieldClass}
         />
         {hasJump && (
@@ -934,6 +1058,12 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
           <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: LOWEST_COLOR }}></span>
           Lowest tide
         </div>
+        {jumpTarget?.loaded && (
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-full border-2" style={{ borderColor: JUMP_COLOR }}></span>
+            Jump to
+          </div>
+        )}
       </div>
     </div>
   );
