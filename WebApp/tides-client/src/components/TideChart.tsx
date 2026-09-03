@@ -459,15 +459,26 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     return predictions.dataPoints.map((_, i) => (i === currentIdx ? '#67e8f9' : 'transparent'));
   }, [predictions, currentIdx]);
 
+  // Whichever low the lowest-tides table last sent over, so it can be marked on a chart whose
+  // markers are otherwise switched off. Setting it as the active element opens its tooltip but
+  // does not draw it - Chart.js applies hover styling on real pointer hover, not to elements
+  // activated in code - so without this the row you picked is the one point with nothing on it.
+  const focusedExtremaIdx = useMemo(() => {
+    if (!focus || extremaPoints.length === 0) return -1;
+    const focusTs = parseISO(focus.timestamp).getTime();
+    return extremaPoints.findIndex((p) => p.x === focusTs);
+  }, [focus, extremaPoints]);
+
   // The overall lowest is the answer the app exists to give, so its marker is always drawn -
   // the same standing as the current-tide marker, and independent of the Labels switch. The
   // rest of the turning points are the detail that switch controls.
   const extremaRadii = useMemo(
     () => extremaPoints.map((_, i) => {
       if (i === lowestExtremaIdx) return 6;
+      if (i === focusedExtremaIdx) return 5;
       return showLabels ? 3.5 : 0;
     }),
-    [extremaPoints, lowestExtremaIdx, showLabels],
+    [extremaPoints, lowestExtremaIdx, focusedExtremaIdx, showLabels],
   );
 
   const extremaColors = useMemo(
@@ -588,20 +599,14 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
 
   // Picking a row in the lowest-tides table centres that low and opens its tooltip. Tapping a
   // table row is precise in a way that scrubbing for a trough is not, which is the point of the
-  // cross-link. The markers have to come on first: the tooltip anchors to a point in the extrema
-  // dataset, which draws nothing while that dataset is hidden. Same render-time adjustment the
-  // zoom reset above uses, rather than a second render from inside an effect.
-  const [focusForExtrema, setFocusForExtrema] = useState(focus);
-  if (focus !== focusForExtrema) {
-    setFocusForExtrema(focus);
-    if (focus) setShowLabels(true);
-  }
-
-  // Which selection the chart has already been moved for, so that toggling the markers back on
-  // later doesn't re-run a stale jump.
+  // cross-link.
+  //
+  // It deliberately leaves the Labels switch alone - that switch is the reader's choice, not
+  // something a jump gets to overrule. The selected low stays visible on its own account, via
+  // focusedExtremaIdx above.
   const appliedFocusSeq = useRef<number | null>(null);
   useEffect(() => {
-    if (!focus || !showLabels || appliedFocusSeq.current === focus.seq) return;
+    if (!focus || appliedFocusSeq.current === focus.seq) return;
 
     const chart = chartRef.current;
     if (!chart) return;
@@ -618,7 +623,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     chart.setActiveElements([{ datasetIndex: EXTREMA_DATASET, index: idx }]);
     chart.tooltip?.setActiveElements([{ datasetIndex: EXTREMA_DATASET, index: idx }], { x: element.x, y: element.y });
     chart.update();
-  }, [focus, showLabels, extremaPoints, centreOn]);
+  }, [focus, extremaPoints, centreOn]);
 
   const handleResetZoom = useCallback(() => {
     chartRef.current?.resetZoom();
@@ -667,6 +672,12 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
         // gives the markers their own hit-testable elements for the hover snap and the tooltip.
         data: extremaPoints,
         showLine: false,
+        // No animation on this dataset. Panning ends with the zoom plugin writing new scale
+        // bounds into React state, which re-renders and so triggers a normal animated update -
+        // harmless on the wave, but it made every marker and its label slide into place on each
+        // pan. The labels are read off these elements' positions, so stilling the points stills
+        // the text with them.
+        animation: false as const,
         // Visibility is per-point radius rather than `hidden` on the dataset: a hidden dataset
         // draws nothing at all, which would take the always-on lowest marker with it and leave
         // the snap anchoring tooltips to a point that isn't rendered.
