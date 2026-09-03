@@ -4,9 +4,14 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-950">
       <header className="bg-gray-900 border-b border-gray-800 text-white py-4 px-4">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-xl font-bold">Captain Crunch's Tide Tracker</h1>
-          <p className="text-gray-400 text-sm">🌕🌊🦀🐚🐠🪸🦑🐙🌙🐡🪼🦈🫧🦞🌊☀️</p>
+        <div className="max-w-4xl mx-auto flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold">Captain Crunch's Tide Tracker</h1>
+            <p className="text-gray-400 text-sm">🌕🌊🦀🐚🐠🪸🦑🐙🌙🐡🪼🦈🫧🦞🌊☀️</p>
+          </div>
+          <span className="shrink-0 text-xs text-gray-500 tabular-nums" title={`Version ${__APP_VERSION__}`}>
+            v{__APP_VERSION__}
+          </span>
         </div>
       </header>
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">

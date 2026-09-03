@@ -50,6 +50,20 @@ Vite + React 19 + TypeScript SPA, styled with Tailwind CSS v4 (via `@tailwindcss
 - Station picker map via Leaflet/`react-leaflet`, OpenStreetMap tiles (switched from Stadia Maps in `cd6e355`), hidden behind a toggle by default (`cb18803`) rather than always shown.
 - Dev server (`vite.config.ts`) proxies `/api` to `http://localhost:5062`, which is the API's local Kestrel port from `Properties/launchSettings.json`. Run the API and the client dev server side by side for local development; the client does not stand alone against a mock backend.
 
+## Versioning
+
+`WebApp/tides-client/package.json`'s `version` field is the single source of truth.
+`vite.config.ts` reads it at build time and inlines it as the `__APP_VERSION__` global (declared in `src/vite-env.d.ts`), which `Layout.tsx` renders in the top right of the header.
+Nothing reads it at runtime, and `Tides.Api` carries no version of its own, so there is exactly one number to change.
+
+**Bump it in the same commit as the change it describes**, following semver loosely:
+
+- patch (`1.0.x`) for fixes, refactors, and small adjustments
+- minor (`1.x.0`) for user-visible features
+- major (`x.0.0`) only when Q asks for it, or when something warrants it strongly enough to raise with Q first - never take a major bump on your own
+
+`npm version <new> --no-git-tag-version` from `tides-client/` edits the file without creating a git tag, which is what you want here: the repo holds two projects and a bare `v1.2.3` tag wouldn't say which one moved.
+
 ## How to run locally
 
 The API and the client are two separate processes; run both side by side.
