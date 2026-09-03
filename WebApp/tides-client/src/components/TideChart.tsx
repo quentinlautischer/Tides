@@ -8,22 +8,14 @@ import {
   Filler,
   Tooltip as ChartTooltip,
   TimeScale,
-  Interaction,
 } from 'chart.js';
-import { getRelativePosition } from 'chart.js/helpers';
 import zoomPlugin from 'chartjs-plugin-zoom';
 import 'chartjs-adapter-date-fns';
 import { Line } from 'react-chartjs-2';
 import { parseISO, format } from 'date-fns';
-import type { ChartOptions, ChartEvent, InteractionModeFunction, Plugin } from 'chart.js';
+import type { ChartOptions, Plugin } from 'chart.js';
 import { stationLabel } from '../lib/station';
 import type { TidePredictionResponse, LowestTideAnalysis } from '../types';
-
-declare module 'chart.js' {
-  interface InteractionModeMap {
-    peakTrough: InteractionModeFunction;
-  }
-}
 
 // Shades Saturday/Sunday behind the line so weekends are visible at a glance.
 // Draws in `beforeDraw` (before the grid/axes render) so gridlines stay visible
@@ -58,42 +50,6 @@ const weekendShadingPlugin: Plugin<'line'> = {
 };
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, ChartTooltip, TimeScale, zoomPlugin, weekendShadingPlugin);
-
-// Custom interaction mode: snaps hover/tooltip to the nearest local extremum
-// (a tide peak or trough) rather than the nearest raw data point, so scrubbing
-// across the line jumps between highs and lows instead of stepping through
-// every point in between.
-Interaction.modes.peakTrough = (chart, e: ChartEvent) => {
-  const meta = chart.getDatasetMeta(0);
-  const elements = meta.data;
-  const values = (chart.data.datasets[0]?.data ?? []) as { y: number }[];
-  if (!elements || elements.length === 0 || values.length !== elements.length) return [];
-
-  const extremaIndices: number[] = [];
-  for (let i = 1; i < values.length - 1; i++) {
-    const prev = values[i - 1].y;
-    const curr = values[i].y;
-    const next = values[i + 1].y;
-    if ((curr > prev && curr > next) || (curr < prev && curr < next)) {
-      extremaIndices.push(i);
-    }
-  }
-  if (extremaIndices.length === 0) return [];
-
-  const position = getRelativePosition(e, chart);
-  let closestIndex = extremaIndices[0];
-  let closestDistance = Infinity;
-  for (const idx of extremaIndices) {
-    const element = elements[idx];
-    if (!element) continue;
-    const distance = Math.abs(element.x - position.x);
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestIndex = idx;
-    }
-  }
-  return [{ element: elements[closestIndex], datasetIndex: 0, index: closestIndex }];
-};
 
 interface Props {
   predictions: TidePredictionResponse | undefined;
@@ -448,7 +404,7 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     responsive: true,
     maintainAspectRatio: false,
     interaction: {
-      mode: 'peakTrough',
+      mode: 'index',
       intersect: false,
     },
     scales: {
