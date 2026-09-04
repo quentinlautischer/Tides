@@ -6,4 +6,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- wwwroot holds the built client and is gitignored, so it is absent on a fresh clone and
+       again after every deploy, which the runbook ends by deleting it. Absent, the static web
+       assets manifest that WebApplication.CreateBuilder reads points a PhysicalFileProvider at a
+       directory that isn't there and the app throws DirectoryNotFoundException before it binds a
+       port - so this fails at startup, not at the first request for a file. Creating the folder
+       is enough; serving out of an empty one is exactly right in development, where the client is
+       served by Vite instead. -->
+  <Target Name="EnsureWebRootExists" BeforeTargets="BeforeBuild">
+    <MakeDir Directories="$(MSBuildProjectDirectory)\wwwroot" />
+  </Target>
+
 </Project>
