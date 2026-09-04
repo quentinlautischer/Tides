@@ -1,4 +1,4 @@
-import type { Station, TidePredictionResponse, LowestTideAnalysis, CurrentTideLevel } from '../types';
+import type { Station, TidePredictionResponse, LowestTideAnalysis, CurrentTideLevel, Observation } from '../types';
 
 const BASE = '/api';
 
@@ -37,5 +37,21 @@ export async function getTideAnalysis(
 ): Promise<LowestTideAnalysis> {
   const res = await fetch(`${BASE}/tides/${code}/analysis?from=${from}&to=${to}`);
   if (!res.ok) throw new Error('Failed to fetch tide analysis');
+  return res.json();
+}
+
+/**
+ * Resolves an iNaturalist observation URL or bare id to the moment and place it was recorded.
+ * Goes through our own API rather than iNaturalist directly: they ask callers to identify
+ * themselves with a User-Agent, which a browser will not let a page set.
+ */
+export async function getObservation(reference: string): Promise<Observation> {
+  const res = await fetch(`${BASE}/observations?reference=${encodeURIComponent(reference)}`);
+  if (!res.ok) {
+    // The API explains refusals in an `error` field - a bad reference or an unknown id - and
+    // those messages are more use to the reader than a generic failure.
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? 'Failed to look up that observation');
+  }
   return res.json();
 }

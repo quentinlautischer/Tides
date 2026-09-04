@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { format, addDays } from 'date-fns';
 import Layout from './components/Layout';
 import StationSelector from './components/StationSelector';
 import DatePicker from './components/DatePicker';
 import RangeSelector from './components/RangeSelector';
 import TideChart from './components/TideChart';
+import type { TideChartHandle } from './components/TideChart';
+import ObservationJump from './components/ObservationJump';
 import StationMap from './components/StationMap';
 import LowestTidesTable from './components/LowestTidesTable';
 import CurrentTideTile from './components/CurrentTideTile';
@@ -36,6 +38,14 @@ function App() {
   function handleFocusTide(timestamp: string) {
     setChartFocus((previous) => ({ timestamp, seq: (previous?.seq ?? 0) + 1 }));
   }
+
+  // Lets the observation lookup point the chart at a sighting without the chart's jump-to state
+  // having to be lifted out of it.
+  const chartHandle = useRef<TideChartHandle>(null);
+
+  const handleObservationJump = useCallback((date: string, time: string) => {
+    chartHandle.current?.jumpTo(date, time);
+  }, []);
 
   function handleSelectStation(station: Station) {
     setSelectedStation(station);
@@ -100,6 +110,12 @@ function App() {
         </div>
       </div>
 
+      <ObservationJump
+        selectedStation={selectedStation}
+        onSelectStation={handleSelectStation}
+        onJump={handleObservationJump}
+      />
+
       {isError && (
         <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm">
           Failed to load tide data. Please try again.
@@ -109,6 +125,7 @@ function App() {
       {selectedStation && (
         <ErrorBoundary>
           <TideChart
+            ref={chartHandle}
             predictions={predictions.data}
             analysis={analysis.data}
             isLoading={predictions.isLoading}

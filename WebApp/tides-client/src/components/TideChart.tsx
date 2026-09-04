@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback, useState, useEffect } from 'react';
+import { useMemo, useRef, useCallback, useState, useEffect, useImperativeHandle } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -16,6 +16,7 @@ import 'chartjs-adapter-date-fns';
 import { Line } from 'react-chartjs-2';
 import { parseISO, format } from 'date-fns';
 import type { KeyboardEvent } from 'react';
+import type { Ref } from 'react';
 import type { ChartOptions, ChartEvent, ChartType, InteractionModeFunction, Plugin } from 'chart.js';
 import { stationLabel } from '../lib/station';
 import type { TidePredictionResponse, LowestTideAnalysis } from '../types';
@@ -291,7 +292,19 @@ Interaction.modes.magneticExtrema = (chart, e: ChartEvent) => {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, ChartTooltip, TimeScale, zoomPlugin, weekendShadingPlugin, extremaLabelsPlugin, jumpMarkerPlugin);
 
+/** What the chart lets a parent drive from outside, for actions that come from elsewhere. */
+export interface TideChartHandle {
+  /** Point the chart at a date (`yyyy-MM-dd`) and time (`HH:mm`), exactly as the fields would. */
+  jumpTo: (date: string, time: string) => void;
+}
+
 interface Props {
+  /**
+   * Exposes {@link TideChartHandle}. The jump is a discrete user action raised by a sibling
+   * component, so it is handed over imperatively rather than as state watched by an effect -
+   * which would also mean setting state from inside an effect on every jump.
+   */
+  ref?: Ref<TideChartHandle>;
   predictions: TidePredictionResponse | undefined;
   analysis: LowestTideAnalysis | undefined;
   isLoading: boolean;
@@ -506,7 +519,7 @@ function ToggleSwitch({ checked, onChange, label, title }: ToggleSwitchProps) {
   );
 }
 
-export default function TideChart({ predictions, analysis, isLoading, onShiftDays, onJumpOutOfRange, year, month, day, focus }: Props) {
+export default function TideChart({ ref, predictions, analysis, isLoading, onShiftDays, onJumpOutOfRange, year, month, day, focus }: Props) {
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [dateInput, setDateInput] = useState('');
   const [timeInput, setTimeInput] = useState('');
@@ -700,6 +713,8 @@ export default function TideChart({ predictions, analysis, isLoading, onShiftDay
     setTimeInput(nextTime);
     revealJump(resolveJumpTarget(nextDate, nextTime, { year, month, day }, chartPoints));
   }, [year, month, day, chartPoints, revealJump]);
+
+  useImperativeHandle(ref, () => ({ jumpTo: handleJumpChange }), [handleJumpChange]);
 
   // Enter is the natural way to be done with a native date or time picker, but neither control
   // does anything with it on its own. Blurring closes whatever the browser popped open, and

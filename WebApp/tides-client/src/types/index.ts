@@ -56,3 +56,21 @@ export interface CurrentTideLevel {
   trend: 'Rising' | 'Falling' | 'Steady';
   source: 'Observed' | 'Predicted';
 }
+
+/**
+ * An iNaturalist observation, resolved by the API into the moment and place it was recorded.
+ *
+ * `observedLocal` is a wall clock reading at the place of the sighting, carrying no offset -
+ * the same convention every timestamp in this app uses. It is fed straight to the chart's
+ * jump-to, which builds its target from bare date and time components.
+ */
+export interface Observation {
+  id: number;
+  observedLocal: string;
+  timeZone: string;
+  /** Null where the observer obscured the location, which iNaturalist allows. */
+  latitude: number | null;
+  longitude: number | null;
+  placeGuess: string | null;
+  uri: string;
+}
