@@ -64,6 +64,18 @@ const SNAP_RADIUS_FRACTION = 0.25;
 /** Minimum clear space between two drawn labels before the later one is dropped. */
 const LABEL_GAP_PX = 8;
 
+/**
+ * The two-line label block, measured from the turning point it belongs to. `ABOVE` and `BELOW`
+ * are the first line's baseline on each side; the second sits `LINE_HEIGHT` further out, and
+ * `ASCENT` is how far the 11px text reaches above its own baseline.
+ */
+const LABEL_OFFSET_ABOVE = 20;
+const LABEL_OFFSET_BELOW = 16;
+const LABEL_LINE_HEIGHT = 12;
+const LABEL_ASCENT = 9;
+/** Clear space between the text and the edge of the plate drawn behind it. */
+const LABEL_PAD = 4;
+
 const HIGH_COLOR = '#94a3b8';
 const LOW_COLOR = '#fca5a5';
 const LOWEST_COLOR = 'oklch(70.4% 0.191 22.216)';
@@ -148,13 +160,37 @@ const extremaLabelsPlugin: Plugin<'line'> = {
       if (element.x - halfWidth < lastRight + LABEL_GAP_PX) continue;
       lastRight = element.x + halfWidth;
 
-      // Lows label downward and highs upward, so the text never lands on the line itself.
+      // Labels are written into the chart rather than out of it: a high's text goes below its
+      // peak and a low's above its trough. A turning point is by definition closest to the edge
+      // it is a turning point towards, so labelling outward is labelling into the one place
+      // there is no room - which is what was clipping them against the top of the plot.
       const isLow = point.kind === 'Low';
-      const valueY = isLow ? element.y + 16 : element.y - 20;
+      const fitsAbove = element.y - LABEL_OFFSET_ABOVE - LABEL_ASCENT >= chartArea.top;
+      const fitsBelow = element.y + LABEL_OFFSET_BELOW + LABEL_LINE_HEIGHT <= chartArea.bottom;
+      // Falls back to the outward side where the inward one somehow has no room, and keeps the
+      // inward one when neither fits, since flipping would only trade one clipped label for another.
+      const drawAbove = isLow ? (fitsAbove || !fitsBelow) : (!fitsBelow && fitsAbove);
+
+      const valueY = drawAbove ? element.y - LABEL_OFFSET_ABOVE : element.y + LABEL_OFFSET_BELOW;
+
+      // Labelling inward puts the text over the curve rather than in clear air beside it, so it
+      // gets the panel's own colour behind it. Without this the line runs straight through the
+      // digits and the label reads as being under the chart instead of on top of it.
+      const boxTop = valueY - LABEL_ASCENT - LABEL_PAD;
+      const boxHeight = LABEL_ASCENT + LABEL_LINE_HEIGHT + LABEL_PAD * 2;
+      ctx.fillStyle = 'rgba(31, 41, 55, 0.85)';
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(element.x - halfWidth - LABEL_PAD, boxTop, halfWidth * 2 + LABEL_PAD * 2, boxHeight, 4);
+      } else {
+        ctx.rect(element.x - halfWidth - LABEL_PAD, boxTop, halfWidth * 2 + LABEL_PAD * 2, boxHeight);
+      }
+      ctx.fill();
+
       ctx.fillStyle = isLow ? LOW_COLOR : HIGH_COLOR;
       ctx.fillText(valueText, element.x, valueY);
       ctx.fillStyle = '#9ca3af';
-      ctx.fillText(timeText, element.x, valueY + 12);
+      ctx.fillText(timeText, element.x, valueY + LABEL_LINE_HEIGHT);
     }
 
     ctx.restore();
@@ -550,7 +586,8 @@ function SightingButton({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       title="Jump to an iNaturalist sighting"
       aria-label="Jump to an iNaturalist sighting"
-      className="inline-flex items-center justify-center rounded-md border border-gray-700 bg-gray-800 p-1 transition-colors hover:bg-gray-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400"
+      // Deliberately the jump-to fields' own colours: it sits in their row and reads as one of them.
+      className="inline-flex items-center justify-center rounded-md border border-gray-600 bg-gray-700 p-1 transition-colors hover:bg-gray-600 focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400"
     >
       <INaturalistIcon className="h-4 w-4" />
     </button>
