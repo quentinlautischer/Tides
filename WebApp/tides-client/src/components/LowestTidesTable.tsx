@@ -1,15 +1,20 @@
 import { useMemo } from 'react';
 import { format, parseISO } from 'date-fns';
+import WaveLoader from './WaveLoader';
+import { useLoadingMessage } from '../hooks/useLoadingMessage';
 import type { LowestTideAnalysis } from '../types';
 
 interface Props {
   analysis: LowestTideAnalysis | undefined;
   isLoading: boolean;
+  /** New figures are on their way; the ones below belong to the range that was on screen before. */
+  isFetching: boolean;
   /** Sends a low to the chart, which centres it and opens its tooltip. */
   onSelect: (timestamp: string) => void;
 }
 
-export default function LowestTidesTable({ analysis, isLoading, onSelect }: Props) {
+export default function LowestTidesTable({ analysis, isLoading, isFetching, onSelect }: Props) {
+  const loadingMessage = useLoadingMessage(isLoading || isFetching);
   const topTides = useMemo(() => {
     if (!analysis) return [];
     return [...analysis.dailyLows]
@@ -20,13 +25,17 @@ export default function LowestTidesTable({ analysis, isLoading, onSelect }: Prop
 
   if (isLoading) {
     return (
-      <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6 animate-pulse">
-        <div className="h-6 bg-gray-700 rounded w-48 mb-4"></div>
-        <div className="space-y-2">
+      <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6">
+        <h2 className="text-lg font-semibold text-gray-100">Lowest Tides</h2>
+        <div className="mt-4 space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-8 bg-gray-700/50 rounded"></div>
+            <div key={i} className="h-8 rounded bg-gray-700/50 animate-pulse"></div>
           ))}
         </div>
+        <span className="mt-4 flex items-center gap-2 text-sm text-gray-300">
+          <WaveLoader className="h-4 w-8 text-cyan-300" />
+          {loadingMessage}
+        </span>
       </div>
     );
   }
@@ -37,9 +46,17 @@ export default function LowestTidesTable({ analysis, isLoading, onSelect }: Prop
 
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6">
-      <h2 className="text-lg font-semibold text-gray-100">Lowest Tides</h2>
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-lg font-semibold text-gray-100">Lowest Tides</h2>
+        {isFetching && (
+          <span className="flex items-center gap-1.5 text-xs text-gray-400">
+            <WaveLoader className="h-3.5 w-7 text-cyan-300" />
+            {loadingMessage}
+          </span>
+        )}
+      </div>
       <p className="text-xs text-gray-500 mb-3">Pick a row to find it on the chart</p>
-      <div className="overflow-x-auto">
+      <div className={`overflow-x-auto transition-opacity ${isFetching ? 'opacity-40' : ''}`}>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-gray-400 border-b border-gray-700">

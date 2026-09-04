@@ -19,8 +19,10 @@ import type { KeyboardEvent } from 'react';
 import type { Ref } from 'react';
 import type { ChartOptions, ChartEvent, ChartType, InteractionModeFunction, Plugin } from 'chart.js';
 import INaturalistIcon from './INaturalistIcon';
+import WaveLoader from './WaveLoader';
+import { useLoadingMessage } from '../hooks/useLoadingMessage';
 import { stationLabel } from '../lib/station';
-import type { TidePredictionResponse, LowestTideAnalysis } from '../types';
+import type { Station, TidePredictionResponse, LowestTideAnalysis } from '../types';
 
 /**
  * Where the jump-to crosshair is drawn, handed to its plugin through `options.plugins`.
@@ -308,7 +310,16 @@ interface Props {
   ref?: Ref<TideChartHandle>;
   predictions: TidePredictionResponse | undefined;
   analysis: LowestTideAnalysis | undefined;
+  /**
+   * The station the chart is being asked about, which is known before its data is - so the
+   * heading, and with it the way to change station, can be drawn in every state.
+   */
+  station: Station | null;
   isLoading: boolean;
+  /** A fetch is in flight over data already on screen, which is left visible underneath. */
+  isFetching: boolean;
+  /** The data couldn't be loaded at all, as opposed to loading fine and being empty. */
+  isError: boolean;
   onShiftDays: (days: number) => void;
   /** Opens the station picker. The chart's heading names the station, so the swap belongs there. */
   onChangeStation: () => void;
@@ -484,6 +495,52 @@ function JumpDateField({ value, display, onChange, onKeyDown }: JumpDateFieldPro
   );
 }
 
+// The station name and the way to change it. Drawn in every state the chart can be in -
+// loading, empty, failed, drawn - because it carries the only route back to the picker: with
+// no chart there is no other control on the page once a station has been chosen.
+function StationHeading({ station, onChangeStation }: { station: Station | null; onChangeStation: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <h2 className="text-lg font-semibold text-gray-100">
+        Tide Levels{station && <> &mdash; {stationLabel(station)}</>}
+      </h2>
+      <button
+        type="button"
+        onClick={onChangeStation}
+        title="Change station"
+        className="inline-flex items-center gap-1 rounded-md bg-gray-700 px-2 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-600"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
+          <path d="M4 8h13l-3-3M20 16H7l3 3" />
+        </svg>
+        Change
+      </button>
+    </div>
+  );
+}
+
+const SHIFT_BUTTON_CLASS = 'px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors';
+
+function ShiftDaysButtons({ onShiftDays }: { onShiftDays: (days: number) => void }) {
+  return (
+    <>
+      <button onClick={() => onShiftDays(-30)} className={SHIFT_BUTTON_CLASS}>&laquo; 30d</button>
+      <button onClick={() => onShiftDays(-7)} className={SHIFT_BUTTON_CLASS}>&lsaquo; 7d</button>
+      <button onClick={() => onShiftDays(7)} className={SHIFT_BUTTON_CLASS}>7d &rsaquo;</button>
+      <button onClick={() => onShiftDays(30)} className={SHIFT_BUTTON_CLASS}>30d &raquo;</button>
+    </>
+  );
+}
+
+function FindingTides({ message, className = '' }: { message: string; className?: string }) {
+  return (
+    <span className={`flex items-center gap-2 text-sm text-gray-300 ${className}`}>
+      <WaveLoader className="h-4 w-8 text-cyan-300" />
+      {message}
+    </span>
+  );
+}
+
 // The sighting lookup fills the jump-to fields for you, so it is offered as the iNaturalist
 // mark at the end of that row rather than as another panel further down the page.
 function SightingButton({ onClick }: { onClick: () => void }) {
@@ -540,7 +597,7 @@ function ToggleSwitch({ checked, onChange, label, title }: ToggleSwitchProps) {
   );
 }
 
-export default function TideChart({ ref, predictions, analysis, isLoading, onShiftDays, onChangeStation, onOpenSighting, onJumpOutOfRange, year, month, day, focus }: Props) {
+export default function TideChart({ ref, predictions, analysis, station, isLoading, isFetching, isError, onShiftDays, onChangeStation, onOpenSighting, onJumpOutOfRange, year, month, day, focus }: Props) {
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [dateInput, setDateInput] = useState('');
   const [timeInput, setTimeInput] = useState('');
@@ -780,16 +837,42 @@ export default function TideChart({ ref, predictions, analysis, isLoading, onShi
     setXRange(null);
   }, []);
 
+  const loadingMessage = useLoadingMessage(isLoading || isFetching);
+
+  const headingStation = predictions?.station ?? station;
+
   if (isLoading) {
     return (
-      <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-        <div className="h-6 bg-gray-700 rounded w-40 mb-4 animate-pulse"></div>
-        <div className="h-64 bg-gray-700/50 rounded animate-pulse"></div>
+      <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6">
+        <StationHeading station={headingStation} onChangeStation={onChangeStation} />
+        <div className="mt-4 flex h-64 flex-col items-center justify-center gap-3 rounded-lg bg-gray-700/30">
+          <WaveLoader className="h-12 w-24 text-cyan-400" />
+          <span className="text-sm text-gray-300">{loadingMessage}</span>
+        </div>
       </div>
     );
   }
 
-  if (!predictions || chartPoints.length === 0) return null;
+  // Nothing to draw, which is not the same as nothing to do: the heading and the range controls
+  // stay, so a station with no data here - or one that failed outright - can still be moved off.
+  if (!predictions || chartPoints.length === 0) {
+    return (
+      <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6">
+        <StationHeading station={headingStation} onChangeStation={onChangeStation} />
+        <p className="mt-3 text-sm text-gray-400">
+          {isError
+            ? "This station's tides could not be loaded."
+            : 'No tide data was published for this station over the dates chosen.'}
+        </p>
+        <p className="mt-1 text-xs text-gray-500">
+          Try another date range, or change to a different station.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <ShiftDaysButtons onShiftDays={onShiftDays} />
+        </div>
+      </div>
+    );
+  }
 
   const hasJump = Boolean(dateInput || timeInput);
   // The field draws its own label, so it can leave the year off while the target is in the year
@@ -928,22 +1011,7 @@ export default function TideChart({ ref, predictions, analysis, isLoading, onShi
     <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6">
       <div className="flex items-start justify-between mb-4">
         <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold text-gray-100">
-              Tide Levels &mdash; {stationLabel(predictions.station)}
-            </h2>
-            <button
-              type="button"
-              onClick={onChangeStation}
-              title="Change station"
-              className="inline-flex items-center gap-1 rounded-md bg-gray-700 px-2 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-600"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
-                <path d="M4 8h13l-3-3M20 16H7l3 3" />
-              </svg>
-              Change
-            </button>
-          </div>
+          <StationHeading station={headingStation} onChangeStation={onChangeStation} />
           {analysis && (() => {
             const ts = parseISO(analysis.lowestTide.timestamp);
             return (
@@ -977,10 +1045,7 @@ export default function TideChart({ ref, predictions, analysis, isLoading, onShi
             </button>
           </div>
           <div className="flex gap-1.5">
-            <button onClick={() => onShiftDays(-30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&laquo; 30d</button>
-            <button onClick={() => onShiftDays(-7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&lsaquo; 7d</button>
-            <button onClick={() => onShiftDays(7)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">7d &rsaquo;</button>
-            <button onClick={() => onShiftDays(30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">30d &raquo;</button>
+            <ShiftDaysButtons onShiftDays={onShiftDays} />
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium text-gray-400">Jump to</span>
@@ -1011,8 +1076,15 @@ export default function TideChart({ ref, predictions, analysis, isLoading, onShi
           </div>
         </div>
       </div>
-      <div className="w-full h-[320px] touch-none">
+      <div className="relative w-full h-[320px] touch-none">
         <Line ref={chartRef} data={data} options={options} />
+        {/* Over the old data rather than instead of it: the shape stays readable while the new
+            range loads, and the scrim stops it being read as current or panned around. */}
+        {isFetching && (
+          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-gray-800/70">
+            <FindingTides message={loadingMessage} className="rounded-full bg-gray-900/90 px-3 py-1.5 shadow-lg" />
+          </div>
+        )}
       </div>
       <div className="flex sm:hidden items-center justify-center gap-1.5 mt-3">
         <button onClick={() => onShiftDays(-30)} className="px-2.5 py-1 text-xs font-medium text-gray-400 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors">&laquo; 30d</button>

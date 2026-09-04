@@ -12,3 +12,27 @@
   border-radius: 9999px;
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35);
 }
+
+/*
+  The loading wave. Two copies of the same profile scroll left at different speeds, which
+  reads as swell rather than as a repeating tile; the path is drawn two periods wider than
+  the viewport it sits in, so translating it by exactly one period loops with no seam.
+*/
+@keyframes tide-wave-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-16px); }
+}
+
+.tide-wave {
+  animation: tide-wave-scroll 1.6s linear infinite;
+}
+
+.tide-wave-back {
+  animation-duration: 2.6s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tide-wave {
+    animation: none;
+  }
+}

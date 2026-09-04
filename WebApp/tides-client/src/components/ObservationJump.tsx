@@ -44,7 +44,7 @@ export default function ObservationJump({ selectedStation, onSelectStation, onJu
 
   // The full station list is a much larger payload than a search, so it is only pulled once a
   // sighting with coordinates actually needs it.
-  const { data: stations } = useAllStations(hasCoordinates);
+  const { data: stations, isError: stationsFailed } = useAllStations(hasCoordinates);
 
   const nearest =
     resolved && hasCoordinates && stations
@@ -128,6 +128,22 @@ export default function ObservationJump({ selectedStation, onSelectStation, onJu
           {!hasCoordinates && (
             <p className="text-gray-500">
               This observation's location is hidden, so there's no station to suggest.
+            </p>
+          )}
+
+          {/* Both of these leave the sighting resolved and the current station untouched - the
+              suggestion is the only part that can't be made, and saying so beats silence. */}
+          {hasCoordinates && stationsFailed && (
+            <p className="text-gray-500">
+              The station list couldn't be loaded, so there's no station to suggest. The time above
+              has still been sent to the chart.
+            </p>
+          )}
+
+          {hasCoordinates && stations && !nearest && (
+            <p className="text-gray-500">
+              No tide station could be matched to this sighting, so the chart is still showing
+              whichever station you had picked.
             </p>
           )}
 

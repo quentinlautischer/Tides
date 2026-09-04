@@ -125,7 +125,10 @@ function App() {
             ref={chartHandle}
             predictions={predictions.data}
             analysis={analysis.data}
+            station={selectedStation}
             isLoading={predictions.isLoading}
+            isFetching={predictions.isFetching || analysis.isFetching}
+            isError={isError}
             onShiftDays={handleShiftDays}
             onChangeStation={() => setIsPickerOpen(true)}
             onOpenSighting={() => setIsSightingOpen(true)}
@@ -138,6 +141,7 @@ function App() {
           <LowestTidesTable
             analysis={analysis.data}
             isLoading={analysis.isLoading}
+            isFetching={analysis.isFetching}
             onSelect={handleFocusTide}
           />
         </ErrorBoundary>
