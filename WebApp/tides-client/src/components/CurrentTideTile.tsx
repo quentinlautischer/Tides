@@ -6,6 +6,11 @@ interface Props {
   current: CurrentTideLevel | undefined;
   station: Station | null;
   isLoading: boolean;
+  /**
+   * `full` is the standalone card; `compact` is the strip that rides in the header next to the
+   * title on wide screens, where there is only room for the reading itself.
+   */
+  variant?: 'full' | 'compact';
 }
 
 const TREND_ROTATION: Record<CurrentTideLevel['trend'], number> = {
@@ -14,11 +19,11 @@ const TREND_ROTATION: Record<CurrentTideLevel['trend'], number> = {
   Steady: 0,
 };
 
-function TrendArrow({ trend }: { trend: CurrentTideLevel['trend'] }) {
+function TrendArrow({ trend, size = 18 }: { trend: CurrentTideLevel['trend']; size?: number }) {
   return (
     <svg
-      width="18"
-      height="18"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -34,7 +39,51 @@ function TrendArrow({ trend }: { trend: CurrentTideLevel['trend'] }) {
   );
 }
 
-export default function CurrentTideTile({ current, station, isLoading }: Props) {
+function LiveDot() {
+  return (
+    <span className="relative flex h-2 w-2" title="Live gauge reading">
+      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-300 opacity-75"></span>
+      <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-300"></span>
+    </span>
+  );
+}
+
+function CompactTile({ current, station, isLoading }: Omit<Props, 'variant'>) {
+  if (isLoading && !current) {
+    return <div className="h-14 w-52 rounded-lg bg-gray-800 animate-pulse" aria-hidden="true"></div>;
+  }
+
+  if (!current) return null;
+
+  const timeStr = format(parseISO(current.timestamp), 'h:mm a');
+
+  return (
+    <div className="rounded-lg bg-gradient-to-br from-teal-600 to-cyan-800 px-4 py-2 text-white shadow-md shadow-cyan-900/30">
+      <div className="flex items-center gap-2.5">
+        <span className="text-2xl font-semibold tabular-nums leading-none">{current.value.toFixed(2)}m</span>
+        <span className="flex items-center gap-1 text-base text-cyan-100">
+          <TrendArrow trend={current.trend} size={16} />
+          {current.trend}
+        </span>
+        {current.source === 'Observed' && <LiveDot />}
+      </div>
+      <div
+        className="mt-1 max-w-[18rem] truncate text-sm text-cyan-200/80"
+        title={current.source === 'Predicted' ? 'Predicted - no live gauge at this station' : undefined}
+      >
+        {station ? `${stationLabel(station)} - ` : ''}
+        {timeStr}
+        {current.source === 'Predicted' && ' (predicted)'}
+      </div>
+    </div>
+  );
+}
+
+export default function CurrentTideTile({ current, station, isLoading, variant = 'full' }: Props) {
+  if (variant === 'compact') {
+    return <CompactTile current={current} station={station} isLoading={isLoading} />;
+  }
+
   if (isLoading && !current) {
     return (
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 animate-pulse">
@@ -61,12 +110,7 @@ export default function CurrentTideTile({ current, station, isLoading }: Props) 
             <span className="normal-case"> - {stationLabel(station)}</span>
           )}
         </h2>
-        {current.source === 'Observed' && (
-          <span className="relative flex h-2 w-2" title="Live gauge reading">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-300 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-300"></span>
-          </span>
-        )}
+        {current.source === 'Observed' && <LiveDot />}
       </div>
       <div className="text-4xl font-semibold mb-2">{current.value.toFixed(2)}m</div>
       <div className="text-cyan-100 text-lg flex items-center gap-1.5">

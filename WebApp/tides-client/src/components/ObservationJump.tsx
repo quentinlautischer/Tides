@@ -12,6 +12,8 @@ interface Props {
   onSelectStation: (station: Station) => void;
   /** Sends the sighting's date and time to the chart's jump-to, as `yyyy-MM-dd` and `HH:mm`. */
   onJump: (date: string, time: string) => void;
+  /** Steps out of the way so the chart underneath can be seen, once a sighting has landed on it. */
+  onViewOnChart: () => void;
 }
 
 type Status =
@@ -33,7 +35,7 @@ const SUGGEST_SWITCH_KM = 25;
  * one thing that is trivially copyable and unambiguous, and it resolves to the coordinates as
  * well as the time, which is what makes the station suggestion possible.
  */
-export default function ObservationJump({ selectedStation, onSelectStation, onJump }: Props) {
+export default function ObservationJump({ selectedStation, onSelectStation, onJump, onViewOnChart }: Props) {
   const [reference, setReference] = useState('');
   const [status, setStatus] = useState<Status>({ state: 'idle' });
 
@@ -77,12 +79,7 @@ export default function ObservationJump({ selectedStation, onSelectStation, onJu
   }, []);
 
   return (
-    <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6">
-      <h2 className="text-lg font-semibold text-gray-100">Jump to a sighting</h2>
-      <p className="text-xs text-gray-500 mb-3">
-        Paste an iNaturalist observation link to see the tide when it was recorded
-      </p>
-
+    <>
       <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2">
         <input
           type="text"
@@ -158,7 +155,14 @@ export default function ObservationJump({ selectedStation, onSelectStation, onJu
             </p>
           )}
 
-          <p className="pt-1">
+          <p className="flex flex-wrap items-center gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onViewOnChart}
+              className="px-2.5 py-1 text-xs font-medium text-gray-200 bg-gray-700 rounded-md transition-colors hover:bg-gray-600"
+            >
+              Show it on the chart
+            </button>
             <a
               href={resolved.uri}
               target="_blank"
@@ -170,6 +174,6 @@ export default function ObservationJump({ selectedStation, onSelectStation, onJu
           </p>
         </div>
       )}
-    </div>
+    </>
   );
 }

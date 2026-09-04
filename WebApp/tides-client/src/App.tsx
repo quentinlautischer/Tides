@@ -1,13 +1,12 @@
 import { useState, useMemo, useRef, useCallback } from 'react';
 import { format, addDays } from 'date-fns';
 import Layout from './components/Layout';
-import StationSelector from './components/StationSelector';
+import StationPickerDialog from './components/StationPickerDialog';
 import DatePicker from './components/DatePicker';
 import RangeSelector from './components/RangeSelector';
 import TideChart from './components/TideChart';
 import type { TideChartHandle } from './components/TideChart';
-import ObservationJump from './components/ObservationJump';
-import StationMap from './components/StationMap';
+import ObservationJumpDialog from './components/ObservationJumpDialog';
 import LowestTidesTable from './components/LowestTidesTable';
 import CurrentTideTile from './components/CurrentTideTile';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -30,7 +29,8 @@ function App() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [day, setDay] = useState(now.getDate());
   const [rangeDays, setRangeDays] = useState(30);
-  const [showMap, setShowMap] = useState(false);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isSightingOpen, setIsSightingOpen] = useState(false);
   // Carries a sequence number so picking the same table row twice re-centres the chart on it
   // rather than being swallowed as an unchanged value.
   const [chartFocus, setChartFocus] = useState<{ timestamp: string; seq: number } | null>(null);
@@ -87,34 +87,31 @@ function App() {
   const isError = predictions.isError || analysis.isError;
 
   return (
-    <Layout>
-      <CurrentTideTile current={current.data} station={selectedStation} isLoading={current.isLoading} />
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <StationSelector selectedStation={selectedStation} onSelect={handleSelectStation} showMap={showMap} onToggleMap={() => setShowMap((v) => !v)} />
-        <div className="order-3 sm:order-none">
-          <DatePicker
-            year={year}
-            month={month}
-            day={day}
-            onChange={(y, m, d) => { setYear(y); setMonth(m); setDay(d); }}
-          />
-        </div>
-        {showMap && (
-          <div className="order-2 sm:order-none sm:col-span-2">
-            <StationMap station={selectedStation} onSelect={handleSelectStation} />
-          </div>
-        )}
-        <div className="order-4 sm:order-none">
-          <RangeSelector selectedDays={rangeDays} onChange={setRangeDays} />
-        </div>
+    <Layout
+      headerAside={
+        <CurrentTideTile
+          current={current.data}
+          station={selectedStation}
+          isLoading={current.isLoading}
+          variant="compact"
+        />
+      }
+    >
+      {/* The header has no room for this on a phone, so the full card stays in the body there
+          and the header copy is hidden instead. Both read the one query in this component. */}
+      <div className="sm:hidden">
+        <CurrentTideTile current={current.data} station={selectedStation} isLoading={current.isLoading} />
       </div>
 
-      <ObservationJump
-        selectedStation={selectedStation}
-        onSelectStation={handleSelectStation}
-        onJump={handleObservationJump}
-      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <DatePicker
+          year={year}
+          month={month}
+          day={day}
+          onChange={(y, m, d) => { setYear(y); setMonth(m); setDay(d); }}
+        />
+        <RangeSelector selectedDays={rangeDays} onChange={setRangeDays} />
+      </div>
 
       {isError && (
         <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm">
@@ -130,6 +127,8 @@ function App() {
             analysis={analysis.data}
             isLoading={predictions.isLoading}
             onShiftDays={handleShiftDays}
+            onChangeStation={() => setIsPickerOpen(true)}
+            onOpenSighting={() => setIsSightingOpen(true)}
             onJumpOutOfRange={handleJumpOutOfRange}
             year={year}
             month={month}
@@ -147,9 +146,31 @@ function App() {
       {!selectedStation && (
         <div className="text-center py-16 text-gray-500">
           <div className="text-5xl mb-4">🌊</div>
-          <p className="text-lg">Search for a station, or show the map and pick one near you</p>
+          <p className="text-lg">Pick a station to see its tides</p>
+          <button
+            type="button"
+            onClick={() => setIsPickerOpen(true)}
+            className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+          >
+            Choose a station
+          </button>
         </div>
       )}
+
+      <StationPickerDialog
+        open={isPickerOpen}
+        selectedStation={selectedStation}
+        onSelect={handleSelectStation}
+        onClose={() => setIsPickerOpen(false)}
+      />
+
+      <ObservationJumpDialog
+        open={isSightingOpen}
+        selectedStation={selectedStation}
+        onSelectStation={handleSelectStation}
+        onJump={handleObservationJump}
+        onClose={() => setIsSightingOpen(false)}
+      />
     </Layout>
   );
 }

@@ -18,6 +18,7 @@ import { parseISO, format } from 'date-fns';
 import type { KeyboardEvent } from 'react';
 import type { Ref } from 'react';
 import type { ChartOptions, ChartEvent, ChartType, InteractionModeFunction, Plugin } from 'chart.js';
+import INaturalistIcon from './INaturalistIcon';
 import { stationLabel } from '../lib/station';
 import type { TidePredictionResponse, LowestTideAnalysis } from '../types';
 
@@ -309,6 +310,10 @@ interface Props {
   analysis: LowestTideAnalysis | undefined;
   isLoading: boolean;
   onShiftDays: (days: number) => void;
+  /** Opens the station picker. The chart's heading names the station, so the swap belongs there. */
+  onChangeStation: () => void;
+  /** Opens the sighting lookup, which drives this chart's jump-to - hence the button beside it. */
+  onOpenSighting: () => void;
   /**
    * Asks for the loaded range to be moved onto a jump-to date it doesn't cover. The picker is
    * unbounded, so this is how a date beyond the loaded window is honoured rather than refused.
@@ -479,6 +484,22 @@ function JumpDateField({ value, display, onChange, onKeyDown }: JumpDateFieldPro
   );
 }
 
+// The sighting lookup fills the jump-to fields for you, so it is offered as the iNaturalist
+// mark at the end of that row rather than as another panel further down the page.
+function SightingButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Jump to an iNaturalist sighting"
+      aria-label="Jump to an iNaturalist sighting"
+      className="inline-flex items-center justify-center rounded-md border border-gray-700 bg-gray-800 p-1 transition-colors hover:bg-gray-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400"
+    >
+      <INaturalistIcon className="h-4 w-4" />
+    </button>
+  );
+}
+
 interface ToggleSwitchProps {
   checked: boolean;
   onChange: () => void;
@@ -519,7 +540,7 @@ function ToggleSwitch({ checked, onChange, label, title }: ToggleSwitchProps) {
   );
 }
 
-export default function TideChart({ ref, predictions, analysis, isLoading, onShiftDays, onJumpOutOfRange, year, month, day, focus }: Props) {
+export default function TideChart({ ref, predictions, analysis, isLoading, onShiftDays, onChangeStation, onOpenSighting, onJumpOutOfRange, year, month, day, focus }: Props) {
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [dateInput, setDateInput] = useState('');
   const [timeInput, setTimeInput] = useState('');
@@ -907,9 +928,22 @@ export default function TideChart({ ref, predictions, analysis, isLoading, onShi
     <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6">
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-gray-100">
-            Tide Levels &mdash; {stationLabel(predictions.station)}
-          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-gray-100">
+              Tide Levels &mdash; {stationLabel(predictions.station)}
+            </h2>
+            <button
+              type="button"
+              onClick={onChangeStation}
+              title="Change station"
+              className="inline-flex items-center gap-1 rounded-md bg-gray-700 px-2 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-600"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
+                <path d="M4 8h13l-3-3M20 16H7l3 3" />
+              </svg>
+              Change
+            </button>
+          </div>
           {analysis && (() => {
             const ts = parseISO(analysis.lowestTide.timestamp);
             return (
@@ -973,6 +1007,7 @@ export default function TideChart({ ref, predictions, analysis, isLoading, onShi
                 &times;
               </button>
             )}
+            <SightingButton onClick={onOpenSighting} />
           </div>
         </div>
       </div>
@@ -1030,6 +1065,7 @@ export default function TideChart({ ref, predictions, analysis, isLoading, onShi
             &times;
           </button>
         )}
+        <SightingButton onClick={onOpenSighting} />
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-400">
         <div className="flex items-center gap-1.5">

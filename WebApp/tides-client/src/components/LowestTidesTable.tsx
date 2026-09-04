@@ -37,7 +37,7 @@ export default function LowestTidesTable({ analysis, isLoading, onSelect }: Prop
 
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 sm:p-6">
-      <h2 className="text-lg font-semibold text-gray-100">Top 10 Lowest Tides</h2>
+      <h2 className="text-lg font-semibold text-gray-100">Lowest Tides</h2>
       <p className="text-xs text-gray-500 mb-3">Pick a row to find it on the chart</p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
