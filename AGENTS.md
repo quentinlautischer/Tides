@@ -122,7 +122,8 @@ Served over plain HTTP they fail silently, leaving no location marker and a perm
 **Steps** (run from `WebApp/Tides.Api/`, after `az login` and `az account set --subscription 43c949f7-2115-4366-8461-9639f9101f0b`):
 
 ```
-cd WebApp/tides-client && npm run build
+cd WebApp && dotnet test
+cd tides-client && npm run build
 cd ../Tides.Api
 rm -rf wwwroot && mkdir wwwroot && cp -r ../tides-client/dist/. wwwroot/
 rm -rf publish && dotnet publish -c Release -o ./publish
@@ -148,11 +149,38 @@ doing it; the only step that differs between platforms is how the zip is made.
 
 ## Testing
 
-There are currently no automated tests anywhere in this repo: no test project in `WebApp/Tides.sln`, no test script or framework in `tides-client/package.json`, no tests for the Python CLI.
+Two suites, both offline - no test hits IWLS, NOAA or iNaturalist. Upstream responses are stubbed
+in their published shape, so the tests fail on a regression rather than on someone else's outage.
 
-What exists today as a proxy for correctness:
-- `tides-client`: `npm run lint` (ESLint) and `npm run build` (`tsc -b && vite build`, which surfaces type errors but doesn't verify behavior).
-- `Tides.Api`: `dotnet build` from `WebApp/` only confirms it compiles; nothing exercises the controllers or services.
-- `ConsoleCLI/Tides.py`: no automated check at all. Verification is running the script and reading its stdout.
+**`WebApp/Tides.Api.Tests/`** (xunit, `dotnet test` from `WebApp/`)
+- `NoaaApiServiceTests` / `IwlsApiServiceTests` - a stubbed `HttpMessageHandler` returns payloads
+  in each authority's own shape, and the tests assert the parsed heights and timestamps are theirs
+  exactly. Also the station filtering each source does (NOAA: reference stations in WA/OR/CA;
+  IWLS: only stations carrying a `wlp` series) and the IWLS 30-day chunking, where the recorded
+  request windows must meet end to end or a stretch of chart has no wave on it.
+- `TidePredictionsControllerTests` - the last hop before the chart: heights untouched, timestamps
+  converted into the station's own wall clock, and the requested days resolved as days *at the
+  station* rather than in UTC.
+- `INaturalistServiceTests` / `ObservationsControllerTests` - the sighting lookup: the observed
+  moment as a naive local wall clock, obscured coordinates, date-only records, unknown ids, the
+  24h cache, and every shape of pasted reference.
 
-If asked to change behavior in `TideAnalysisService` (timezone/day-bucketing math), `IwlsApiService` / `NoaaApiService` (rate limiting, chunking, caching, station filtering), or `TideStationDirectory` (search ranking, source routing), be aware there is no regression safety net today; manual verification against the running app is the only option unless tests are added first.
+**`WebApp/tides-client/`** (vitest, `npm test`; also runs as the first step of `npm run build`)
+- `src/lib/__tests__/tideCache.test.ts` - the gap-filling cache between the API and the chart:
+  what the source published comes back unaltered, overlapping ranges neither duplicate nor drop a
+  point, and the range is half-open so the chart never draws a day the analysis endpoint didn't see.
+- `src/lib/__tests__/observation.test.ts`, `geo.test.ts` - the sighting's date/time split and the
+  nearest-station search.
+
+Two conventions worth keeping:
+- **Assert against the world, not against the code.** The distance test's expected kilometres were
+  checked with an independent haversine, not copied from this implementation's output.
+- **Don't assert on future timezone rules.** The DST test uses a past autumn on purpose:
+  `America/Vancouver`'s 2026 rules have already changed under a draft of that test (tzdata 2026c
+  has it on UTC-7 year-round from November 2026), and a test pinned to them fails on a tzdata
+  update rather than on a regression.
+
+Still uncovered, so change with care: `TideAnalysisService` (day bucketing, current-level
+interpolation), `TideStationDirectory` (search ranking, source routing), every React component,
+and `ConsoleCLI/Tides.py` - which has no automated check at all; verification there is running the
+script and reading its stdout.

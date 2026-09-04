@@ -4,6 +4,7 @@ import { format, parseISO } from 'date-fns';
 import { getObservation } from '../api/tidesApi';
 import { useAllStations } from '../hooks/useStations';
 import { nearestStation } from '../lib/geo';
+import { observationJumpTarget } from '../lib/observation';
 import { stationLabel } from '../lib/station';
 import type { Observation, Station } from '../types';
 
@@ -61,10 +62,8 @@ export default function ObservationJump({ selectedStation, onSelectStation, onJu
       const observation = await getObservation(trimmed);
       setStatus({ state: 'resolved', observation });
 
-      // `observedLocal` is `yyyy-MM-ddTHH:mm:ss` with no offset, which splits straight into what
-      // the jump-to fields hold. Seconds are dropped: the chart's time input has no seconds
-      // component, and the tide moves imperceptibly inside a minute.
-      onJump(observation.observedLocal.slice(0, 10), observation.observedLocal.slice(11, 16));
+      const { date, time } = observationJumpTarget(observation);
+      onJump(date, time);
     } catch (error) {
       setStatus({
         state: 'error',
